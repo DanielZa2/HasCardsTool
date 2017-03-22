@@ -2,6 +2,7 @@ import json
 import os
 import datetime
 import collections
+import time
 import logging
 
 from urllib import request as urlrequest
@@ -14,27 +15,36 @@ class ParseException(Exception):
     pass
 
 
-
-
 def simplified_name(name):
     ret = name.strip()
-    ret = ret.translate(None, "™®©!,.'[](){}")  # Remove these characters from the string
-    for ch in ["_", "-", ":", ";"]:
+    ret = ret.lower()
+
+    translation_table = dict.fromkeys(map(ord, "™®©!,.'[](){}"), None)
+    translation_table.update(dict.fromkeys(map(ord, "_-:;"), " "))
+    translation_table[ord("&")] = "and"
+    ret = ret.translate(translation_table)
+    return ret
+
+
+'''
+    for ch in "™®©!,.'[](){}":
+        if ch in ret:
+            ret = ret.replace(ch, "")
+
+    for ch in "_-:;":
         if ch in ret:
             ret = ret.replace(ch, " ")
 
-    # ret = ret.replace("'s", "")
+    ret = ret.replace("'s", "")
     ret = ret.replace("&", " and ")
     return ret
+'''
 
 
 def fetch_game_list(path):
     with open(path, encoding='UTF-8') as file:
         names = file.read().splitlines()
-        return map(SteamApp, names)
-
-
-
+        return list(map(SteamApp, names))
 
 
 class SteamApp:
@@ -53,10 +63,48 @@ class SteamApp:
     def __repr__(self):
         return "<SteamApp: " + self.users_name + ">"
 
-    def get_id(self, applist):
+    def update_id(self, applist):
         """Lookup your own name in the supplied list of names."""
         self.id = applist.name_lookup.get(self.simplified_name, None)  # default=None
         return self.id
+
+    @staticmethod
+    def __fetch_card_info_from_net__(app_id):
+        req = urlrequest.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
+
+        try:
+            json_bytes = urlrequest.urlopen(req).read()
+        except urlerror.HTTPError:
+            logging.exception("Failed getting details for app " + app_id)
+            return None
+
+        json_text = json_bytes.decode("utf-8")
+        try:
+            game_info = json.loads(json_text)
+
+            if not game_info[app_id]["success"]:
+                return None
+
+            data = game_info[app_id]["data"]
+            return data
+
+        except (json.decoder.JSONDecodeError, KeyError):
+            logging.exception("Failed to parse details for app " + app_id)
+            return None
+
+    def update_card_info(self):
+        if self.id is None:
+            return
+        data = SteamApp.__fetch_card_info_from_net__(self.id)
+        if data is None:
+            return
+
+        self.known_cards = True
+
+        for tag in data["categories"]:
+            if tag["id"] == 29:  # and tag["description"] == "Steam Trading Cards":
+                self.has_cards = True
+                break
 
 
 class SteamAppList:
@@ -107,7 +155,7 @@ class SteamAppList:
     def get_id(self, lst):
         """Give names to all the apps in the list,"""
         for game in lst:
-            game.get_id(self)
+            game.update_id(self)
 
     def fetch(self, fetch_from_net=False):
         """Fill the object with data about app names. get the data either from a local file or from the internet. Automaticlly access the net if the file is missing."""
@@ -122,33 +170,16 @@ class SteamAppList:
             self.__data__ = SteamAppList.json_to_list(SteamAppList.fetch_from_disk())
 
         self.id_lookup = {pair["appid"]: pair["name"] for pair in self.__data__}
-        self.name_lookup = {simplified_name(pair["name"]): pair["appid"] for pair in self.__data__}
+        self.name_lookup = {simplified_name(pair["name"]): str(pair["appid"]) for pair in self.__data__}
         return self
 
 
-@staticmethod
-def fetch_game_data_static(app_id):
-    req = urlrequest.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
+def export(games):
+    for game in games:
+        cards = "?" if not game.known_cards else "Yes" if game.has_cards else "No"
+        print(game.users_name + ", " + cards)
 
-    try:
-        json_bytes = urlrequest.urlopen(req).read()
-    except urlerror.HTTPError:
-        logging.exception("Failed getting details for app " + app_id)
-        return None
 
-    json_text = json_bytes.decode("utf-8")
-    try:
-        game_info = json.loads(json_text)
-
-        if not game_info[app_id]["success"]:
-            return None
-
-        data = game_info[app_id]["data"]
-        return data
-
-    except (json.decoder.JSONDecodeError, KeyError):
-        logging.exception("Failed to parse details for app " + app_id)
-        return None
 
 
 def main():
@@ -156,14 +187,10 @@ def main():
     applist = SteamAppList().fetch()
     input_games = fetch_game_list(path)
     applist.get_id(input_games)
-
-
-
-
-
-
-
-
+    for game in input_games:
+        game.update_card_info()
+        time.sleep(0.5)
+    export(input_games)
 
 
 if __name__ == "__main__":
