@@ -27,8 +27,11 @@ def simplified_name(name):
     translation_table[ord("í")] = "i"
     translation_table[ord("ó")] = "o"
     translation_table[ord("ú")] = "u"
+    translation_table[ord("ﬁ")] = "fi"
+
 
     ret = ret.translate(translation_table)
+    ret = " ".join(ret.split())
     return ret
 
 
@@ -59,34 +62,34 @@ class SteamApp:
         self.id = applist.name_lookup.get(self.simplified_name, None)  # default=None
         return self.id
 
-    @staticmethod
-    def __fetch_card_info_from_net__(app_id):
-        req = urlrequest.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
+
+    def __fetch_card_info_from_net__(self):
+        req = urlrequest.Request("http://store.steampowered.com/api/appdetails/?appids=" + self.id)
 
         try:
             json_bytes = urlrequest.urlopen(req).read()
         except urlerror.HTTPError:
-            logging.exception("Failed getting details for app " + app_id)
+            logging.exception("Failed getting details for " + self.simplified_name)
             return None
 
         json_text = json_bytes.decode("utf-8")
         try:
             game_info = json.loads(json_text)
 
-            if not game_info[app_id]["success"]:
+            if not game_info[self.id]["success"]:
                 return None
 
-            data = game_info[app_id]["data"]
+            data = game_info[self.id]["data"]
             return data
 
         except (json.decoder.JSONDecodeError, KeyError):
-            logging.exception("Failed to parse details for app " + app_id)
+            logging.exception("Failed to parse details for app " + self.id)
             return None
 
     def update_card_info(self):
         if self.id is None:
             return
-        data = SteamApp.__fetch_card_info_from_net__(self.id)
+        data = SteamApp.__fetch_card_info_from_net__(self)
         if data is None:
             return
 
