@@ -19,13 +19,14 @@ def simplified_name(name):
     ret = name.strip()
     ret = ret.lower()
 
-    translation_table = dict.fromkeys(map(ord, "™®©!,.'[](){}"), None)
+    translation_table = dict.fromkeys(map(ord, "™®©!,.'’`[](){}\""), None)
     translation_table.update(dict.fromkeys(map(ord, "_-:;"), " "))
     translation_table[ord("&")] = "and"
     translation_table[ord("á")] = "a"
     translation_table[ord("é")] = "e"
     translation_table[ord("í")] = "i"
     translation_table[ord("ó")] = "o"
+    translation_table[ord("ö")] = "o"
     translation_table[ord("ú")] = "u"
     translation_table[ord("ﬁ")] = "fi"
 
@@ -176,23 +177,24 @@ def export_csv(games, filename="output.csv"):
         print(line)
 
         for game in games:
-            id = game.id if game.id is not None else ""
+            name = game.users_name if "," not in game.users_name else "\"" + game.users_name + "\""
+            app_id = game.id if game.id is not None else ""
             cards = "" if not game.known_cards else "TRUE" if game.has_cards else "FALSE"
-            line = game.users_name + "," + id + "," + cards
+            line = name + "," + app_id + "," + cards
             file.write(line)
             file.write("\n")
             print(line)
 
 
 def main():
-    path = "Test/big_list.txt"
+    path = "Test/list.txt"
     applist = SteamAppList().fetch()
     input_games = fetch_game_list(path)
     applist.get_id(input_games)
     for game in input_games:
         game.update_card_info()
         time.sleep(1)
-    export_csv(input_games, "Test/big_list_out.csv")
+    export_csv(input_games, "Test/list_out.csv")
 
 
 if __name__ == "__main__":
