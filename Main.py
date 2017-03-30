@@ -15,31 +15,7 @@ class ParseException(Exception):
     pass
 
 
-def simplified_name(name):
-    ret = name.strip()
-    ret = ret.lower()
 
-    translation_table = dict.fromkeys(map(ord, "™®©!,.'’`[](){}\""), None)
-    translation_table.update(dict.fromkeys(map(ord, "_-:;"), " "))
-    translation_table[ord("&")] = "and"
-    translation_table[ord("á")] = "a"
-    translation_table[ord("é")] = "e"
-    translation_table[ord("í")] = "i"
-    translation_table[ord("ó")] = "o"
-    translation_table[ord("ö")] = "o"
-    translation_table[ord("ú")] = "u"
-    translation_table[ord("ﬁ")] = "fi"
-
-
-    ret = ret.translate(translation_table)
-    ret = " ".join(ret.split())
-    return ret
-
-
-def fetch_game_list(path):
-    with open(path, encoding='UTF-8') as file:
-        names = file.read().splitlines()
-        return list(map(SteamApp, names))
 
 
 class SteamApp:
@@ -58,11 +34,10 @@ class SteamApp:
     def __repr__(self):
         return "<SteamApp: " + self.users_name + ">"
 
-    def update_id(self, applist):
-        """Lookup your own name in the supplied list of names."""
+    def find_id(self, applist):
+        """Lookup your own id in the supplied list of names."""
         self.id = applist.name_lookup.get(self.simplified_name, None)  # default=None
         return self.id
-
 
     def __fetch_card_info_from_net__(self):
         req = urlrequest.Request("http://store.steampowered.com/api/appdetails/?appids=" + self.id)
@@ -70,7 +45,7 @@ class SteamApp:
         try:
             json_bytes = urlrequest.urlopen(req).read()
         except urlerror.HTTPError:
-            logging.exception("Failed getting details for " + self.simplified_name)
+            logging.exception("Failed getting details for " + self.users_name)
             return None
 
         json_text = json_bytes.decode("utf-8")
@@ -87,11 +62,13 @@ class SteamApp:
             logging.exception("Failed to parse details for app " + self.id)
             return None
 
-    def update_card_info(self):
+    def fetch_card_info(self):
         if self.id is None:
             return
+        logging.info("Fetching card data for app " + self.id + " (" + self.users_name + ")")
         data = SteamApp.__fetch_card_info_from_net__(self)
         if data is None:
+            logging.error("Fetching Failed! app " + self.id + " (" + self.users_name + ")")
             return
 
         self.known_cards = True
@@ -147,11 +124,6 @@ class SteamAppList:
             logging.exception("Failed to parse fetched applist")
             return None
 
-    def get_id(self, lst):
-        """Give names to all the apps in the list,"""
-        for game in lst:
-            game.update_id(self)
-
     def fetch(self, fetch_from_net=False):
         """Fill the object with data about app names. get the data either from a local file or from the internet. Automaticlly access the net if the file is missing."""
         if self.__data__ is not None:
@@ -167,6 +139,52 @@ class SteamAppList:
         self.id_lookup = {pair["appid"]: pair["name"] for pair in self.__data__}
         self.name_lookup = {simplified_name(pair["name"]): str(pair["appid"]) for pair in self.__data__}
         return self
+
+def simplified_name(name):
+    ret = name.strip()
+    ret = ret.lower()
+
+    translation_table = dict.fromkeys(map(ord, "™®©!,.'’`[](){}\""), None)
+    translation_table.update(dict.fromkeys(map(ord, "_-:;"), " "))
+    translation_table[ord("&")] = "and"
+    translation_table[ord("á")] = "a"
+    translation_table[ord("é")] = "e"
+    translation_table[ord("í")] = "i"
+    translation_table[ord("ó")] = "o"
+    translation_table[ord("ö")] = "o"
+    translation_table[ord("ú")] = "u"
+    translation_table[ord("ﬁ")] = "fi"
+
+    ret = ret.translate(translation_table)
+    ret = " ".join(ret.split())
+    return ret
+
+
+def fetch_users_game_list(path, applist=None):
+    if applist is None:
+        applist = SteamAppList().fetch()
+    with open(path, encoding='UTF-8') as file:
+        names = file.read().splitlines()
+        users_games = list(map(SteamApp, names))
+
+    for game in users_games:
+        game_id = game.find_id(applist)
+        if game_id is None:
+            logging.error("Couldn't find ID for " + game.users_name)
+
+    return users_games
+
+
+def fetch_card_info(users_games):
+    cooldown = 0
+    for game in users_games:
+        game.fetch_card_info()
+        time.sleep(1)
+        cooldown += 1
+        if cooldown >= 100:
+            logging.info("Scan card details for 100 games. Going for a 30 seconds nap (To avoid overwhelming Steam's web api).")
+            time.sleep(30)
+            cooldown = 0
 
 
 def export_csv(games, filename="output.csv"):
@@ -188,12 +206,8 @@ def export_csv(games, filename="output.csv"):
 
 def main():
     path = "Test/list.txt"
-    applist = SteamAppList().fetch()
-    input_games = fetch_game_list(path)
-    applist.get_id(input_games)
-    for game in input_games:
-        game.update_card_info()
-        time.sleep(1)
+    input_games = fetch_users_game_list(path)
+    fetch_card_info(input_games)
     export_csv(input_games, "Test/list_out.csv")
 
 
