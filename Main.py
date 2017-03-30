@@ -23,9 +23,9 @@ class SteamApp:
 
     def __init__(self, name):
         self.id = None
-        self.simplified_name = simplified_name(name)
         self.users_name = name
-        self.known_cards = False
+        self.simplified_name = simplified_name(name)
+        self.card_status_known = False
         self.has_cards = False
 
     def __str__(self):
@@ -35,43 +35,47 @@ class SteamApp:
         return "<SteamApp: " + self.users_name + ">"
 
     def find_id(self, applist):
-        """Lookup your own id in the supplied list of names."""
+        """Lookup your own id in the supplied list."""
         self.id = applist.name_lookup.get(self.simplified_name, None)  # default=None
         return self.id
 
-    def __fetch_card_info_from_net__(self):
-        req = urlrequest.Request("http://store.steampowered.com/api/appdetails/?appids=" + self.id)
+    @staticmethod
+    def __fetch_app_detailed_info_from_net__(app_id):
+        """Use Steam's web api and fetch details about the app whose ID is app_id"""
+        req = urlrequest.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
 
         try:
             json_bytes = urlrequest.urlopen(req).read()
         except urlerror.HTTPError:
-            logging.exception("Failed getting details for " + self.users_name)
+            logging.exception("Failed getting details for app number" + app_id)
             return None
 
         json_text = json_bytes.decode("utf-8")
         try:
             game_info = json.loads(json_text)
 
-            if not game_info[self.id]["success"]:
+            if not game_info[app_id]["success"]:
                 return None
 
-            data = game_info[self.id]["data"]
+            data = game_info[app_id]["data"]
             return data
 
         except (json.decoder.JSONDecodeError, KeyError):
-            logging.exception("Failed to parse details for app " + self.id)
+            logging.exception("Failed to parse details for app number" + app_id)
             return None
 
     def fetch_card_info(self):
+        """Use Steam's web api to find out whatever the app has cards."""
         if self.id is None:
+            logging.warning("Skipping data fetch for " + self.users_name + ". Unknown app_id")
             return
         logging.info("Fetching card data for app " + self.id + " (" + self.users_name + ")")
-        data = SteamApp.__fetch_card_info_from_net__(self)
+        data = SteamApp.__fetch_app_detailed_info_from_net__(self)
         if data is None:
             logging.error("Fetching Failed! app " + self.id + " (" + self.users_name + ")")
             return
 
-        self.known_cards = True
+        self.card_status_known = True
 
         for tag in data["categories"]:
             if tag["id"] == 29:  # and tag["description"] == "Steam Trading Cards":
@@ -140,7 +144,11 @@ class SteamAppList:
         self.name_lookup = {simplified_name(pair["name"]): str(pair["appid"]) for pair in self.__data__}
         return self
 
+
 def simplified_name(name):
+    """Takes a name and transforms it into simpler form that will be used as dict key. Used to make sure that even if the user wrote non-exact name the program will still recognize it.
+    For example transforms "Brütal Legend" into "Brutal Legend". Whatever spelling the user used in his list, both will be mapped to the same key.
+    """
     ret = name.strip()
     ret = ret.lower()
 
@@ -153,6 +161,7 @@ def simplified_name(name):
     translation_table[ord("ó")] = "o"
     translation_table[ord("ö")] = "o"
     translation_table[ord("ú")] = "u"
+    translation_table[ord("ü")] = "u"
     translation_table[ord("ﬁ")] = "fi"
 
     ret = ret.translate(translation_table)
@@ -161,6 +170,7 @@ def simplified_name(name):
 
 
 def fetch_users_game_list(path, applist=None):
+    """Reads the file located in path and creates a SteamApp object for each game written there. One game name per line."""
     if applist is None:
         applist = SteamAppList().fetch()
     with open(path, encoding='UTF-8') as file:
@@ -176,6 +186,7 @@ def fetch_users_game_list(path, applist=None):
 
 
 def fetch_card_info(users_games):
+    """Calls fetch_card_info for each game in users_games. Inserts some delays to not overwhelm Steam's API."""
     cooldown = 0
     for game in users_games:
         game.fetch_card_info()
@@ -188,6 +199,7 @@ def fetch_card_info(users_games):
 
 
 def export_csv(games, filename="output.csv"):
+    """Exports the results as a csv file."""
     with open(filename, mode="w", encoding='UTF-8') as file:
         line = "Title, AppID, Cards"
         file.write(line)
@@ -197,7 +209,7 @@ def export_csv(games, filename="output.csv"):
         for game in games:
             name = game.users_name if "," not in game.users_name else "\"" + game.users_name + "\""
             app_id = game.id if game.id is not None else ""
-            cards = "" if not game.known_cards else "TRUE" if game.has_cards else "FALSE"
+            cards = "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"
             line = name + "," + app_id + "," + cards
             file.write(line)
             file.write("\n")
