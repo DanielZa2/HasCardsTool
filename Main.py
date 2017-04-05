@@ -8,14 +8,9 @@ import logging
 from urllib import request as urlrequest
 from urllib import error as urlerror
 
-logging.basicConfig(filename="log.log")
-
 
 class ParseException(Exception):
     pass
-
-
-
 
 
 class SteamApp:
@@ -32,7 +27,7 @@ class SteamApp:
         return self.users_name
 
     def __repr__(self):
-        return "<SteamApp: " + self.users_name + ">"
+        return "<SteamApp: {0}>".format(self.users_name)
 
     def find_id(self, applist):
         """Lookup your own id in the supplied list."""
@@ -47,7 +42,7 @@ class SteamApp:
         try:
             json_bytes = urlrequest.urlopen(req).read()
         except urlerror.HTTPError:
-            logging.exception("Failed getting details for app number" + app_id)
+            logging.exception("Failed getting details for app number %s", app_id)
             return None
 
         json_text = json_bytes.decode("utf-8")
@@ -61,18 +56,18 @@ class SteamApp:
             return data
 
         except (json.decoder.JSONDecodeError, KeyError):
-            logging.exception("Failed to parse details for app number" + app_id)
+            logging.exception("Failed to parse details for app number %s", app_id)
             return None
 
     def fetch_card_info(self):
         """Use Steam's web api to find out whatever the app has cards."""
         if self.id is None:
-            logging.warning("Skipping data fetch for " + self.users_name + ". Unknown app_id")
+            logging.warning("Unknown app_id: Skipping data fetch for %r.", self.users_name)
             return
-        logging.info("Fetching card data for app " + self.id + " (" + self.users_name + ")")
-        data = SteamApp.__fetch_app_detailed_info_from_net__(self)
+        logging.info("Fetching card data for app %s (%r).", self.id, self.users_name)
+        data = SteamApp.__fetch_app_detailed_info_from_net__(self.id)
         if data is None:
-            logging.error("Fetching Failed! app " + self.id + " (" + self.users_name + ")")
+            logging.error("Fetching Failed! app %s (%r).", self.id, self.users_name)
             return
 
         self.card_status_known = True
@@ -180,7 +175,7 @@ def fetch_users_game_list(path, applist=None):
     for game in users_games:
         game_id = game.find_id(applist)
         if game_id is None:
-            logging.error("Couldn't find ID for " + game.users_name)
+            logging.error("Couldn't find ID for %r", game.users_name)
 
     return users_games
 
@@ -210,10 +205,14 @@ def export_csv(games, filename="output.csv"):
             name = game.users_name if "," not in game.users_name else "\"" + game.users_name + "\""
             app_id = game.id if game.id is not None else ""
             cards = "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"
-            line = name + "," + app_id + "," + cards
+            line = "{0},{1},{2}".format(name, app_id, cards)
             file.write(line)
             file.write("\n")
             print(line)
+
+
+def log_config(filename="log.log"):
+    logging.basicConfig(filename=filename, level=logging.INFO, format='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S")
 
 
 def main():
@@ -224,4 +223,5 @@ def main():
 
 
 if __name__ == "__main__":
+    log_config()
     main()
