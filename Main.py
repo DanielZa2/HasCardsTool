@@ -1,24 +1,25 @@
 import json
 import os
-import datetime
-import collections
 import time
 import logging
 
-from urllib import request as urlrequest
-from urllib import error as urlerror
+import urllib
+import urllib.parse
+import urllib.request
+from bs4 import BeautifulSoup
 
 
 class ParseException(Exception):
     pass
 
 
-class SteamApp:
-    """Describe a single steam app. That is, more often than not, a game."""
+class Game:
+    """Describe a single steam app. More often than not, a game. Could also represent software, DLC, and anything bought from steam."""
 
     def __init__(self, name):
         self.id = None
         self.users_name = name
+        self.correct_name = name
         self.simplified_name = simplified_name(name)
         self.card_status_known = False
         self.has_cards = False
@@ -29,19 +30,27 @@ class SteamApp:
     def __repr__(self):
         return "<SteamApp: {0}>".format(self.users_name)
 
-    def find_id(self, applist):
-        """Lookup your own id in the supplied list."""
-        self.id = applist.name_lookup.get(self.simplified_name, None)  # default=None
+    def find_id(self, applist=None, update_unknown_names=False):
+        if applist is not None:
+            """Lookup your own id in the supplied list."""
+            self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
+
+        if self.id is None:
+            self.id = Game.__fetch_app_id_from_net__(self.users_name)
+            if applist is not None and update_unknown_names:
+                self.correct_name = applist.id_lookup.get(self.id, self.users_name)
+                self.simplified_name = simplified_name(self.correct_name)
+
         return self.id
 
     @staticmethod
     def __fetch_app_detailed_info_from_net__(app_id):
         """Use Steam's web api and fetch details about the app whose ID is app_id"""
-        req = urlrequest.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
+        req = urllib.request.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
 
         try:
-            json_bytes = urlrequest.urlopen(req).read()
-        except urlerror.HTTPError:
+            json_bytes = urllib.request.urlopen(req).read()
+        except urllib.error.HTTPError:
             logging.exception("Failed getting details for app number %s", app_id)
             return None
 
@@ -59,13 +68,41 @@ class SteamApp:
             logging.exception("Failed to parse details for app number %s", app_id)
             return None
 
+    @staticmethod
+    def __fetch_app_id_from_net__(name):
+        """Use Steam's web api and fetch details about the app whose ID is app_id"""
+        url = "http://www.google.com/search?q=site:store.steampowered.com+%s&lr=lang_en" % urllib.parse.quote(name, safe="")
+        hdr = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11'}
+        req = urllib.request.Request(url, headers=hdr)
+
+        try:
+            time.sleep(1)
+            html = urllib.request.urlopen(req).read()
+        except urllib.error.HTTPError:
+            logging.exception("Failed while googling the name %s", name)
+            return None
+
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            anchors = soup.find(id="search").findAll('a')
+            final_links = [x['href'] for x in anchors if x['href'].startswith("http://store.steampowered.com/app/") or x['href'].startswith("https://store.steampowered.com/app/")]
+            # print("\n".join(final_links))
+            top_link = final_links[0]
+            app_id = top_link[top_link.index("/app/") + len("/app/"):]
+            app_id = app_id[:app_id.index("/")]
+            return app_id
+
+        except (json.decoder.JSONDecodeError, KeyError):
+            logging.exception("Failed to parse google's response to %s", name)
+            return None
+
     def fetch_card_info(self):
         """Use Steam's web api to find out whatever the app has cards."""
         if self.id is None:
             logging.warning("Unknown app_id: Skipping data fetch for %r.", self.users_name)
             return
         logging.info("Fetching card data for app %s (%r).", self.id, self.users_name)
-        data = SteamApp.__fetch_app_detailed_info_from_net__(self.id)
+        data = Game.__fetch_app_detailed_info_from_net__(self.id)
         if data is None:
             logging.error("Fetching Failed! app %s (%r).", self.id, self.users_name)
             return
@@ -78,7 +115,7 @@ class SteamApp:
                 break
 
 
-class SteamAppList:
+class AppList:
     """Describe a list of appIDs and app names. Used to find the name of the app based on the id."""
     FETCH_URL = "http://api.steampowered.com/ISteamApps/GetAppList/v0001/"
     FETCH_LOCAL_PATH = "Applist.txt"
@@ -91,10 +128,10 @@ class SteamAppList:
     @staticmethod
     def fetch_from_net(url=FETCH_URL):
         """Fetch new AppList from the web. See: http://api.steampowered.com/ISteamApps/GetAppList/v0001/ """
-        req = urlrequest.Request(url)
+        req = urllib.request.Request(url)
         try:
-            json_bytes = urlrequest.urlopen(req).read()
-        except urlerror.HTTPError:
+            json_bytes = urllib.request.urlopen(req).read()
+        except urllib.error.HTTPError:
             logging.exception("Failed to fetch applist from net")
             return None
 
@@ -124,19 +161,27 @@ class SteamAppList:
             return None
 
     def fetch(self, fetch_from_net=False):
-        """Fill the object with data about app names. get the data either from a local file or from the internet. Automaticlly access the net if the file is missing."""
+        """Fill the object with data about app names. get the data either from a local file or from the internet. Automatically access the net if the file is missing."""
         if self.__data__ is not None:
             return self
 
-        if fetch_from_net or not os.path.exists(SteamAppList.FETCH_LOCAL_PATH):
-            json_text = SteamAppList.fetch_from_net()
-            self.__data__ = SteamAppList.json_to_list(json_text)
-            SteamAppList.write_apps_to_disk(json_text)
+        if fetch_from_net or not os.path.exists(AppList.FETCH_LOCAL_PATH):
+            json_text = AppList.fetch_from_net()
+            self.__data__ = AppList.json_to_list(json_text)
+            AppList.write_apps_to_disk(json_text)
         else:
-            self.__data__ = SteamAppList.json_to_list(SteamAppList.fetch_from_disk())
+            self.__data__ = AppList.json_to_list(AppList.fetch_from_disk())
 
+        # Lookup appid->name
         self.id_lookup = {pair["appid"]: pair["name"] for pair in self.__data__}
-        self.name_lookup = {simplified_name(pair["name"]): str(pair["appid"]) for pair in self.__data__}
+
+        # Lookup name->appid. It is possible that there are multiple games with the same name. Remove all of them. Handle it latter in the code.
+        simplified_names = [simplified_name(pair["name"]) for pair in self.__data__]
+        id_strings = [str(pair["appid"]) for pair in self.__data__]
+        pairs = zip(simplified_names, id_strings)
+
+        self.name_lookup = {name: appid for (name, appid) in pairs if simplified_names.count(name) == 1}
+
         return self
 
 
@@ -164,16 +209,16 @@ def simplified_name(name):
     return ret
 
 
-def fetch_users_game_list(path, applist=None):
-    """Reads the file located in path and creates a SteamApp object for each game written there. One game name per line."""
-    if applist is None:
-        applist = SteamAppList().fetch()
+def fetch_users_game_list(path, app_list=None):
+    """Reads the file located in path and creates a Game object for each game written there. One game name per line."""
+    if app_list is None:
+        app_list = AppList().fetch()
     with open(path, encoding='UTF-8') as file:
         names = file.read().splitlines()
-        users_games = list(map(SteamApp, names))
+        users_games = list(map(Game, names))
 
     for game in users_games:
-        game_id = game.find_id(applist)
+        game_id = game.find_id(app_list)
         if game_id is None:
             logging.error("Couldn't find ID for %r", game.users_name)
 
@@ -222,6 +267,12 @@ def main():
     export_csv(input_games, "Test/list_out.csv")
 
 
+def main2():
+    g = Game("Assassin creed 1")
+    g.find_id()
+    print(g.id)
+
+
 if __name__ == "__main__":
     log_config()
-    main()
+    main2()
