@@ -6,7 +6,9 @@ import logging
 import urllib
 import urllib.parse
 import urllib.request
+import contextlib
 from bs4 import BeautifulSoup
+from sys import stdout as syso
 
 
 class ParseException(Exception):
@@ -19,7 +21,6 @@ class Game:
     def __init__(self, name):
         self.id = None
         self.users_name = name
-        self.correct_name = name
         self.simplified_name = simplified_name(name)
         self.card_status_known = False
         self.has_cards = False
@@ -28,20 +29,24 @@ class Game:
         return self.users_name
 
     def __repr__(self):
-        return "<SteamApp: {0}>".format(self.users_name)
+        return "<SteamApp: %s>" % self.users_name
 
     def find_id(self, applist=None, update_unknown_names=False):
         if applist is not None:
             """Lookup your own id in the supplied list."""
+            logging.info('Looking for %s in the applist' % self.users_name)
             self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
 
         if self.id is None:
-            self.id = Game.__fetch_app_id_from_net__(self.users_name)
+            """ID wasn't found in the applist. Looking for it in google."""
+            logging.warning('"%s" was not found in the applist. Looking in google.' % self.users_name)
+            self.id = Game.__fetch_id_from_net__(self.users_name)
             if applist is not None and update_unknown_names:
-                self.correct_name = applist.id_lookup.get(self.id, self.users_name)
-                self.simplified_name = simplified_name(self.correct_name)
+                """If the ID was found by google, this means that originally we were searching with the wrong name. We can update the name to the correct one."""
+                self.simplified_name = simplified_name(applist.id_lookup.get(self.id, self.users_name))
+                logging.info('Correcting "%s" to "%s".', self.users_name, self.simplified_name)
 
-        return self.id
+        return self.id is not None
 
     @staticmethod
     def __fetch_app_detailed_info_from_net__(app_id):
@@ -69,15 +74,21 @@ class Game:
             return None
 
     @staticmethod
-    def __fetch_app_id_from_net__(name):
-        """Use Steam's web api and fetch details about the app whose ID is app_id"""
+    def __fetch_id_from_net__(name):
+        Game.__search_id_google_api__(name)
+
+    @staticmethod
+    def __scrap_id_from_google__(name):
+        """Preform a google search with the name given by the user in order to locate the correct game."""
         url = "http://www.google.com/search?q=site:store.steampowered.com+%s&lr=lang_en" % urllib.parse.quote(name, safe="")
-        hdr = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11'}
+        hdr = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36'}
         req = urllib.request.Request(url, headers=hdr)
 
         try:
-            time.sleep(1)
-            html = urllib.request.urlopen(req).read()
+            time.sleep(5)
+            with contextlib.closing(urllib.request.urlopen(req)) as x:
+                html = x.read()
+                # html = urllib.request.urlopen(req).read()
         except urllib.error.HTTPError:
             logging.exception("Failed while googling the name %s", name)
             return None
@@ -95,6 +106,42 @@ class Game:
         except (json.decoder.JSONDecodeError, KeyError):
             logging.exception("Failed to parse google's response to %s", name)
             return None
+
+
+    @staticmethod
+    def __search_id_google_api__(name, cx="001484053352446370655:wd3-r7pqncc", key="AIzaSyD-XEIVjk9wrv4XDv1hKqFrvOHZyKkwGYU"):
+        """Uses google's custom search api to find your id"""
+        url = "https://www.googleapis.com/customsearch/v1?q=%s&cx=%s&key=%s&fields=items(title,link)"
+        url %= urllib.parse.quote(name, safe=""), urllib.parse.quote(cx, safe=""), urllib.parse.quote(key, safe="")
+        hdr = {'User-Agent': 'CardsTool'}
+        req = urllib.request.Request(url, headers=hdr)
+
+        try:
+            time.sleep(1)
+            with contextlib.closing(urllib.request.urlopen(req)) as x:
+                json_bytes = x.read()
+        except urllib.error.HTTPError:
+            logging.exception("Failed while googling the name %s", name)
+            return None
+
+        json_text = json_bytes.decode("utf-8")
+        try:
+            data = json.loads(json_text)
+
+        except (json.decoder.JSONDecodeError, KeyError):
+            logging.exception("Failed to parse google's response for %s", name)
+            return None
+
+        data = data["items"]
+        if len(data) < 1:
+            return None
+        top_result = data[0]["title"]
+        top_link = data[0]["link"]
+
+        app_id = top_link[top_link.index("/app/") + len("/app/"):]
+        app_id = app_id[:app_id.index("/")]
+        return app_id
+
 
     def fetch_card_info(self):
         """Use Steam's web api to find out whatever the app has cards."""
@@ -216,10 +263,10 @@ def fetch_users_game_list(path, app_list=None):
     with open(path, encoding='UTF-8') as file:
         names = file.read().splitlines()
         users_games = list(map(Game, names))
-
+    logging.info("Got applist: %s", app_list is not None)
     for game in users_games:
-        game_id = game.find_id(app_list)
-        if game_id is None:
+        succ = game.find_id(app_list, False)
+        if not succ:
             logging.error("Couldn't find ID for %r", game.users_name)
 
     return users_games
@@ -256,23 +303,25 @@ def export_csv(games, filename="output.csv"):
             print(line)
 
 
-def log_config(filename="log.log"):
+def log_config(filename="log.log", log_to_console=False):
     logging.basicConfig(filename=filename, level=logging.INFO, format='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+    if log_to_console:
+        logging.getLogger().addHandler(logging.StreamHandler(syso))
+    logging.info("------------------------------------------Starting------------------------------------------")
 
 
 def main():
-    path = "Test/list.txt"
+    path = "Test/big_list.txt"
     input_games = fetch_users_game_list(path)
     fetch_card_info(input_games)
-    export_csv(input_games, "Test/list_out.csv")
+    export_csv(input_games, "Test/big_list_out.csv")
+
 
 
 def main2():
-    g = Game("Assassin creed 1")
-    g.find_id()
-    print(g.id)
-
+    ans = Game.__search_id_google_api__("Bioshock")
+    print(ans)
 
 if __name__ == "__main__":
-    log_config()
+    log_config(log_to_console=True)
     main2()
