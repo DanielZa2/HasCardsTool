@@ -1,4 +1,8 @@
+# TODO Remap shortcut keys. Shift+Space. Rename (Shift+F6). Reformal (Ctrl+Alt+L)
+# Play around with the windows. Use the real estate from your second secreen for some of the bars.
+
 import json
+import csv
 import os
 import time
 import logging
@@ -31,7 +35,10 @@ class Game:
     def __repr__(self):
         return "<SteamApp: %s>" % self.users_name
 
-    def find_id(self, applist=None, update_unknown_names=False):
+    def find_id(self, applist=None):
+        if self.id is not None:
+            return True
+
         if applist is not None:
             """Lookup your own id in the supplied list."""
             logging.info('Looking for %s in the applist' % self.users_name)
@@ -41,10 +48,6 @@ class Game:
             """ID wasn't found in the applist. Looking for it in google."""
             logging.warning('"%s" was not found in the applist. Looking in google.' % self.users_name)
             self.id = Game.__fetch_id_from_net__(self.users_name)
-            if applist is not None and update_unknown_names:
-                """If the ID was found by google, this means that originally we were searching with the wrong name. We can update the name to the correct one."""
-                self.simplified_name = simplified_name(applist.id_lookup.get(self.id, self.users_name))
-                logging.info('Correcting "%s" to "%s".', self.users_name, self.simplified_name)
 
         return self.id is not None
 
@@ -75,7 +78,7 @@ class Game:
 
     @staticmethod
     def __fetch_id_from_net__(name):
-        Game.__search_id_google_api__(name)
+        return Game.__search_id_google_api__(name)
 
     @staticmethod
     def __scrap_id_from_google__(name):
@@ -88,6 +91,8 @@ class Game:
             time.sleep(5)
             with contextlib.closing(urllib.request.urlopen(req)) as x:
                 html = x.read()
+                # TODO check HTML code and make sure that the answer returned is an actual answer. Stop googling if you capacity is expended.
+
                 # html = urllib.request.urlopen(req).read()
         except urllib.error.HTTPError:
             logging.exception("Failed while googling the name %s", name)
@@ -106,7 +111,6 @@ class Game:
         except (json.decoder.JSONDecodeError, KeyError):
             logging.exception("Failed to parse google's response to %s", name)
             return None
-
 
     @staticmethod
     def __search_id_google_api__(name, cx="001484053352446370655:wd3-r7pqncc", key="AIzaSyD-XEIVjk9wrv4XDv1hKqFrvOHZyKkwGYU"):
@@ -141,7 +145,6 @@ class Game:
         app_id = top_link[top_link.index("/app/") + len("/app/"):]
         app_id = app_id[:app_id.index("/")]
         return app_id
-
 
     def fetch_card_info(self):
         """Use Steam's web api to find out whatever the app has cards."""
@@ -260,16 +263,34 @@ def fetch_users_game_list(path, app_list=None):
     """Reads the file located in path and creates a Game object for each game written there. One game name per line."""
     if app_list is None:
         app_list = AppList().fetch()
-    with open(path, encoding='UTF-8') as file:
-        names = file.read().splitlines()
-        users_games = list(map(Game, names))
     logging.info("Got applist: %s", app_list is not None)
-    for game in users_games:
-        succ = game.find_id(app_list, False)
-        if not succ:
-            logging.error("Couldn't find ID for %r", game.users_name)
+
+    with open(path, encoding='UTF-8', newline="") as file:
+        file_reader = csv.reader(file)
+        users_games = []
+        for row in file_reader:
+
+            if len(row) >= 3 and string_is_int(row[-2]) and row[-1] in ["True", "False", ""]:
+                """The line scanned is in the same format as the output of our program"""
+                name = "".join(row[:-2])
+                game = Game(name)
+                game.id = row[-2]
+                game.card_status_known = row[-1] is not ""
+                game.has_cards = bool(row[-1]) if game.card_status_known else False
+            else:
+                """The line wasn't written by us. Assuming it is all one long name"""
+                name = "".join(row)
+                game = Game(name)
+            users_games.append(game)
 
     return users_games
+
+
+def find_app_ids_for_games(users_games, app_list=None):
+    for game in users_games:
+        succ = game.find_id(app_list)
+        if not succ:
+            logging.error("Couldn't find ID for %r", game.users_name)
 
 
 def fetch_card_info(users_games):
@@ -285,23 +306,19 @@ def fetch_card_info(users_games):
             cooldown = 0
 
 
-def export_csv(games, filename="output.csv"):
+def export_csv(games, filename="output.csv", log_to_console=False):
     """Exports the results as a csv file."""
-    with open(filename, mode="w", encoding='UTF-8') as file:
-        line = "Title, AppID, Cards"
-        file.write(line)
-        file.write("\n")
-        print(line)
+    with open(filename, mode="w", encoding='UTF-8', newline='') as file:
+        file_writer = csv.writer(file)
+        file_writer.writerow(["Title", "AppID", "Cards"])
 
         for game in games:
-            name = game.users_name if "," not in game.users_name else "\"" + game.users_name + "\""
-            app_id = game.id if game.id is not None else ""
-            cards = "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"
-            line = "{0},{1},{2}".format(name, app_id, cards)
-            file.write(line)
-            file.write("\n")
-            print(line)
+            line = [game.users_name, game.id, "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"]
+            file_writer.writerow(line)
 
+    if log_to_console:
+        with open(filename, encoding='UTF-8') as file:
+            print(file.read())
 
 def log_config(filename="log.log", log_to_console=False):
     logging.basicConfig(filename=filename, level=logging.INFO, format='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S")
@@ -310,18 +327,29 @@ def log_config(filename="log.log", log_to_console=False):
     logging.info("------------------------------------------Starting------------------------------------------")
 
 
-def main():
-    path = "Test/big_list.txt"
-    input_games = fetch_users_game_list(path)
-    fetch_card_info(input_games)
-    export_csv(input_games, "Test/big_list_out.csv")
+def string_is_int(s):
+    """Source: https://stackoverflow.com/a/1267145/2842452"""
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
 
+
+def main():
+    path = "Test/list_with_csv.txt"
+    input_games = fetch_users_game_list(path)
+    print(input_games)
+    # find_app_ids_for_games(input_games)
+    # fetch_card_info(input_games)
+    export_csv(input_games, "Test/list_out.csv", log_to_console=True)
 
 
 def main2():
     ans = Game.__search_id_google_api__("Bioshock")
     print(ans)
 
+
 if __name__ == "__main__":
-    log_config(log_to_console=True)
-    main2()
+    log_config(log_to_console=True) # TODO Test Code
+    main()
