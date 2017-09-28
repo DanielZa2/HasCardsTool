@@ -1,5 +1,5 @@
 # TODO Remap shortcut keys. Shift+Space. Rename (Shift+F6). Reformal (Ctrl+Alt+L)
-# Play around with the windows. Use the real estate from your second secreen for some of the bars.
+# TODO Play around with the windows. Use the real estate from your second secreen for some of the bars.
 
 import json
 import csv
@@ -36,9 +36,6 @@ class Game:
         return "<SteamApp: %s>" % self.users_name
 
     def find_id(self, applist=None):
-        if self.id is not None:
-            return True
-
         if applist is not None:
             """Lookup your own id in the supplied list."""
             logging.info('Looking for %s in the applist' % self.users_name)
@@ -46,13 +43,13 @@ class Game:
 
         if self.id is None:
             """ID wasn't found in the applist. Looking for it in google."""
-            logging.warning('"%s" was not found in the applist. Looking in google.' % self.users_name)
+            logging.info('"%s" was not found in the applist. Looking in google.' % self.users_name)
             self.id = Game.__fetch_id_from_net__(self.users_name)
 
         return self.id is not None
 
     @staticmethod
-    def __fetch_app_detailed_info_from_net__(app_id):
+    def __app_details_steam_api__(app_id):
         """Use Steam's web api and fetch details about the app whose ID is app_id"""
         req = urllib.request.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
 
@@ -78,7 +75,13 @@ class Game:
 
     @staticmethod
     def __fetch_id_from_net__(name):
-        return Game.__search_id_google_api__(name)
+        # return Game.__scrap_id_from_google__(name)
+        global config
+        if config["key"] is not None:
+            return Game.__search_id_google_api__(name, config["cx"], config["key"])
+        else:
+            logging.info("Can't search google for %s because API key is not set.", name)
+            return None
 
     @staticmethod
     def __scrap_id_from_google__(name):
@@ -91,7 +94,6 @@ class Game:
             time.sleep(5)
             with contextlib.closing(urllib.request.urlopen(req)) as x:
                 html = x.read()
-                # TODO check HTML code and make sure that the answer returned is an actual answer. Stop googling if you capacity is expended.
 
                 # html = urllib.request.urlopen(req).read()
         except urllib.error.HTTPError:
@@ -113,7 +115,7 @@ class Game:
             return None
 
     @staticmethod
-    def __search_id_google_api__(name, cx="001484053352446370655:wd3-r7pqncc", key="AIzaSyD-XEIVjk9wrv4XDv1hKqFrvOHZyKkwGYU"):
+    def __search_id_google_api__(name, cx, key):
         """Uses google's custom search api to find your id"""
         url = "https://www.googleapis.com/customsearch/v1?q=%s&cx=%s&key=%s&fields=items(title,link)"
         url %= urllib.parse.quote(name, safe=""), urllib.parse.quote(cx, safe=""), urllib.parse.quote(key, safe="")
@@ -124,6 +126,7 @@ class Game:
             time.sleep(1)
             with contextlib.closing(urllib.request.urlopen(req)) as x:
                 json_bytes = x.read()
+                # TODO check HTML code and make sure that the answer returned is an actual answer. Stop googling if you capacity is expended.
         except urllib.error.HTTPError:
             logging.exception("Failed while googling the name %s", name)
             return None
@@ -148,11 +151,14 @@ class Game:
 
     def fetch_card_info(self):
         """Use Steam's web api to find out whatever the app has cards."""
+        if self.card_status_known:
+            logging.info("Card status for %r is already known. Skipping fetch.", self.users_name)
+            return
         if self.id is None:
             logging.warning("Unknown app_id: Skipping data fetch for %r.", self.users_name)
             return
         logging.info("Fetching card data for app %s (%r).", self.id, self.users_name)
-        data = Game.__fetch_app_detailed_info_from_net__(self.id)
+        data = Game.__app_details_steam_api__(self.id)
         if data is None:
             logging.error("Fetching Failed! app %s (%r).", self.id, self.users_name)
             return
@@ -259,11 +265,8 @@ def simplified_name(name):
     return ret
 
 
-def fetch_users_game_list(path, app_list=None):
+def fetch_users_game_list(path):
     """Reads the file located in path and creates a Game object for each game written there. One game name per line."""
-    if app_list is None:
-        app_list = AppList().fetch()
-    logging.info("Got applist: %s", app_list is not None)
 
     with open(path, encoding='UTF-8', newline="") as file:
         file_reader = csv.reader(file)
@@ -288,9 +291,10 @@ def fetch_users_game_list(path, app_list=None):
 
 def find_app_ids_for_games(users_games, app_list=None):
     for game in users_games:
-        succ = game.find_id(app_list)
-        if not succ:
-            logging.error("Couldn't find ID for %r", game.users_name)
+        if game.id is None:
+            succ = game.find_id(app_list)
+            if not succ:
+                logging.error("Couldn't find ID for %r", game.users_name)
 
 
 def fetch_card_info(users_games):
@@ -310,7 +314,6 @@ def export_csv(games, filename="output.csv", log_to_console=False):
     """Exports the results as a csv file."""
     with open(filename, mode="w", encoding='UTF-8', newline='') as file:
         file_writer = csv.writer(file)
-        file_writer.writerow(["Title", "AppID", "Cards"])
 
         for game in games:
             line = [game.users_name, game.id, "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"]
@@ -322,6 +325,7 @@ def export_csv(games, filename="output.csv", log_to_console=False):
 
 def log_config(filename="log.log", log_to_console=False):
     logging.basicConfig(filename=filename, level=logging.INFO, format='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+    logging._defaultFormatter = logging.Formatter(u"%(message)s")
     if log_to_console:
         logging.getLogger().addHandler(logging.StreamHandler(syso))
     logging.info("------------------------------------------Starting------------------------------------------")
@@ -336,12 +340,25 @@ def string_is_int(s):
         return False
 
 
+def load_config(path):
+    global config
+    with open(path, encoding='UTF-8') as file:
+        config = json.loads(file.read())
+        if config["key"] == "123":
+            config["key"] = None
+            logging.warning("No Google API key is set. Using google search is impossible.")
+
+        return config
+
+
 def main():
-    path = "Test/list_with_csv.txt"
+    path = "Test/list.txt"
+    load_config("./config.txt")
+
     input_games = fetch_users_game_list(path)
-    print(input_games)
-    # find_app_ids_for_games(input_games)
-    # fetch_card_info(input_games)
+    app_list = AppList().fetch()
+    find_app_ids_for_games(input_games, app_list)
+    fetch_card_info(input_games)
     export_csv(input_games, "Test/list_out.csv", log_to_console=True)
 
 
@@ -351,5 +368,7 @@ def main2():
 
 
 if __name__ == "__main__":
-    log_config(log_to_console=True) # TODO Test Code
+    log_config(log_to_console=True)
+    config = None
+    # TODO fix: logging.info("\u03a9 Ω")
     main()
