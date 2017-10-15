@@ -1,5 +1,11 @@
-# TODO Remap shortcut keys. Shift+Space. Rename (Shift+F6). Reformal (Ctrl+Alt+L)
-# TODO Play around with the windows. Use the real estate from your second secreen for some of the bars.
+# TODO Remap shortcut keys. Reformat (Alt+F). Show Intention Action (Alt+Enter). Completion (Ctrl+Space, Ctrl+Shift+Space)
+# TODO Play around with the windows. Use the real estate from your second screen for some of the bars.
+# TODO Test Transposed code
+# TODO GUI
+
+
+# TODO fix: logging.info("\u03a9 Ω")
+
 
 import json
 import csv
@@ -36,56 +42,26 @@ class Game:
         return "<SteamApp: %s>" % self.users_name
 
     def find_id(self, applist=None):
-        if applist is not None:
+        if applist:
             """Lookup your own id in the supplied list."""
-            logging.info('Looking for %s in the applist' % self.users_name)
+            logging.info('Looking in applist for %s' % self.users_name)
             self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
 
         if self.id is None:
             """ID wasn't found in the applist. Looking for it in google."""
             logging.info('"%s" was not found in the applist. Looking in google.' % self.users_name)
-            self.id = Game.__fetch_id_from_net__(self.users_name)
+            # return Game.__scrap_id_from_google__(name)
+            global config
+            if config["key"]:
+                self.id = Game.__search_id_google_api__(self.users_name, config["cx"], config["key"])
+            else:
+                logging.info("Can't search google for %s because API key is not set. Skipping.", self.users_name)
 
-        return self.id is not None
-
-    @staticmethod
-    def __app_details_steam_api__(app_id):
-        """Use Steam's web api and fetch details about the app whose ID is app_id"""
-        req = urllib.request.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
-
-        try:
-            json_bytes = urllib.request.urlopen(req).read()
-        except urllib.error.HTTPError:
-            logging.exception("Failed getting details for app number %s", app_id)
-            return None
-
-        json_text = json_bytes.decode("utf-8")
-        try:
-            game_info = json.loads(json_text)
-
-            if not game_info[app_id]["success"]:
-                return None
-
-            data = game_info[app_id]["data"]
-            return data
-
-        except (json.decoder.JSONDecodeError, KeyError):
-            logging.exception("Failed to parse details for app number %s", app_id)
-            return None
-
-    @staticmethod
-    def __fetch_id_from_net__(name):
-        # return Game.__scrap_id_from_google__(name)
-        global config
-        if config["key"] is not None:
-            return Game.__search_id_google_api__(name, config["cx"], config["key"])
-        else:
-            logging.info("Can't search google for %s because API key is not set.", name)
-            return None
+        return self.id
 
     @staticmethod
     def __scrap_id_from_google__(name):
-        """Preform a google search with the name given by the user in order to locate the correct game."""
+        """ Unused. Preform a google search with the name given by the user in order to locate the correct game."""
         url = "http://www.google.com/search?q=site:store.steampowered.com+%s&lr=lang_en" % urllib.parse.quote(name, safe="")
         hdr = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36'}
         req = urllib.request.Request(url, headers=hdr)
@@ -126,7 +102,6 @@ class Game:
             time.sleep(1)
             with contextlib.closing(urllib.request.urlopen(req)) as x:
                 json_bytes = x.read()
-                # TODO check HTML code and make sure that the answer returned is an actual answer. Stop googling if you capacity is expended.
         except urllib.error.HTTPError:
             logging.exception("Failed while googling the name %s", name)
             return None
@@ -152,15 +127,15 @@ class Game:
     def fetch_card_info(self):
         """Use Steam's web api to find out whatever the app has cards."""
         if self.card_status_known:
-            logging.info("Card status for %r is already known. Skipping fetch.", self.users_name)
+            logging.info("Card status for %s is already known. Skipping fetch.", self.users_name)
             return
         if self.id is None:
-            logging.warning("Unknown app_id: Skipping data fetch for %r.", self.users_name)
+            logging.warning("Unknown app_id: Skipping data fetch for %s.", self.users_name)
             return
-        logging.info("Fetching card data for app %s (%r).", self.id, self.users_name)
+        logging.info("Fetching card data for app %s (%s).", self.id, self.users_name)
         data = Game.__app_details_steam_api__(self.id)
         if data is None:
-            logging.error("Fetching Failed! app %s (%r).", self.id, self.users_name)
+            logging.error("Fetching Failed! app %s (%s).", self.id, self.users_name)
             return
 
         self.card_status_known = True
@@ -168,7 +143,33 @@ class Game:
         for tag in data["categories"]:
             if tag["id"] == 29:  # and tag["description"] == "Steam Trading Cards":
                 self.has_cards = True
-                break
+                return
+
+    @staticmethod
+    def __app_details_steam_api__(app_id):
+        """Use Steam's web api and fetch details about the app whose ID is app_id"""
+        req = urllib.request.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
+
+        try:
+            json_bytes = urllib.request.urlopen(req).read()
+
+        except urllib.error.HTTPError:
+            logging.exception("Failed getting details for app number %s", app_id)
+            return None
+
+        json_text = json_bytes.decode("utf-8")
+        try:
+            game_info = json.loads(json_text)
+
+            if not game_info[app_id]["success"]:
+                return None
+
+            data = game_info[app_id]["data"]
+            return data
+
+        except (json.decoder.JSONDecodeError, KeyError):
+            logging.exception("Failed to parse details for app number %s", app_id)
+            return None
 
 
 class AppList:
@@ -218,7 +219,7 @@ class AppList:
 
     def fetch(self, fetch_from_net=False):
         """Fill the object with data about app names. get the data either from a local file or from the internet. Automatically access the net if the file is missing."""
-        if self.__data__ is not None:
+        if self.__data__:
             return self
 
         if fetch_from_net or not os.path.exists(AppList.FETCH_LOCAL_PATH):
@@ -265,63 +266,21 @@ def simplified_name(name):
     return ret
 
 
-def fetch_users_game_list(path):
-    """Reads the file located in path and creates a Game object for each game written there. One game name per line."""
+class CSVExporter:
+    def __init__(self, filename, log_to_console=False):
+        self.file = open(filename, mode="w", encoding='UTF-8', newline='')
+        self.file_writer = csv.writer(self.file)
+        self.console_writer = csv.writer(syso) if log_to_console else None
 
-    with open(path, encoding='UTF-8', newline="") as file:
-        file_reader = csv.reader(file)
-        users_games = []
-        for row in file_reader:
+    def close(self):
+        self.file.close()
 
-            if len(row) >= 3 and string_is_int(row[-2]) and row[-1] in ["True", "False", ""]:
-                """The line scanned is in the same format as the output of our program"""
-                name = "".join(row[:-2])
-                game = Game(name)
-                game.id = row[-2]
-                game.card_status_known = row[-1] is not ""
-                game.has_cards = bool(row[-1]) if game.card_status_known else False
-            else:
-                """The line wasn't written by us. Assuming it is all one long name"""
-                name = "".join(row)
-                game = Game(name)
-            users_games.append(game)
+    def write(self, game):
+        line = [game.users_name, game.id, "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"]
+        self.file_writer.writerow(line)
+        if self.console_writer:
+            self.console_writer.writerow(line)
 
-    return users_games
-
-
-def find_app_ids_for_games(users_games, app_list=None):
-    for game in users_games:
-        if game.id is None:
-            succ = game.find_id(app_list)
-            if not succ:
-                logging.error("Couldn't find ID for %r", game.users_name)
-
-
-def fetch_card_info(users_games):
-    """Calls fetch_card_info for each game in users_games. Inserts some delays to not overwhelm Steam's API."""
-    cooldown = 0
-    for game in users_games:
-        game.fetch_card_info()
-        time.sleep(1)
-        cooldown += 1
-        if cooldown >= 100:
-            logging.info("Scan card details for 100 games. Going for a 30 seconds nap (To avoid overwhelming Steam's web api).")
-            time.sleep(30)
-            cooldown = 0
-
-
-def export_csv(games, filename="output.csv", log_to_console=False):
-    """Exports the results as a csv file."""
-    with open(filename, mode="w", encoding='UTF-8', newline='') as file:
-        file_writer = csv.writer(file)
-
-        for game in games:
-            line = [game.users_name, game.id, "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"]
-            file_writer.writerow(line)
-
-    if log_to_console:
-        with open(filename, encoding='UTF-8') as file:
-            print(file.read())
 
 def log_config(filename="log.log", log_to_console=False):
     logging.basicConfig(filename=filename, level=logging.INFO, format='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S")
@@ -336,6 +295,7 @@ def string_is_int(s):
     try:
         int(s)
         return True
+
     except ValueError:
         return False
 
@@ -351,24 +311,60 @@ def load_config(path):
         return config
 
 
+def users_game_list(path):
+    """Reads the file located in path and creates a Game object for each game written there. One game name per line."""
+
+    with open(path, encoding='UTF-8', newline="") as file:
+        file_reader = csv.reader(file)
+        for row in file_reader:
+            if len(row) == 0:
+                continue
+
+            if len(row) >= 3 and string_is_int(row[-2]) and row[-1] in ["True", "False", ""]:
+                """The line scanned is in the same format as the output of our program"""
+                name = "".join(row[:-2])
+                game = Game(name)
+                game.id = row[-2]
+                game.card_status_known = row[-1] is not ""
+                game.has_cards = bool(row[-1]) if game.card_status_known else False
+            else:
+                """The line wasn't written by us. Assuming it is all one long name"""
+                name = "".join(row)
+                game = Game(name)
+            yield game
+
+
 def main():
-    path = "Test/list.txt"
+    path_in = "Test/big_list.txt"
+    path_out = "Test/big_list_out.csv"
+
     load_config("./config.txt")
-
-    input_games = fetch_users_game_list(path)
     app_list = AppList().fetch()
-    find_app_ids_for_games(input_games, app_list)
-    fetch_card_info(input_games)
-    export_csv(input_games, "Test/list_out.csv", log_to_console=True)
+    export = CSVExporter(path_out, log_to_console=True)
+    cooldown = 0
 
+    try:
+        for game in users_game_list(path_in):
+            if game.id is None:
+                succ = game.find_id(app_list)
+                if not succ:
+                    logging.error("Couldn't find ID for %r", game.users_name)
 
-def main2():
-    ans = Game.__search_id_google_api__("Bioshock")
-    print(ans)
+            game.fetch_card_info()
+            time.sleep(1)
+            cooldown += 1
+            if cooldown >= 100:
+                logging.info("Scan card details for 100 games. Going for a 30 seconds nap (To avoid overwhelming Steam's web api).")
+                time.sleep(30)
+                cooldown = 0
+
+            export.write(export, game)
+    finally:
+        export.close()
 
 
 if __name__ == "__main__":
-    log_config(log_to_console=True)
     config = None
-    # TODO fix: logging.info("\u03a9 Ω")
-    main()
+    log_config(log_to_console=True)
+    # main()
+    logging.info("\u03a9 Ω")
