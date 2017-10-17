@@ -1,6 +1,9 @@
 # TODO Remap shortcut keys. Reformat (Alt+F). Show Intention Action (Alt+Enter). Completion (Ctrl+Space, Ctrl+Shift+Space)
 # TODO Play around with the windows. Use the real estate from your second screen for some of the bars.
-# TODO Test Transposed code
+
+# TODO Find out why the code sometimes hangs while processing the big list.
+# TODO cleanup the printing after you fixed the problem above
+# TODO You should go to sleep only if you actually accessed some API. No point in slowing your program for no reason.
 # TODO GUI
 
 
@@ -44,12 +47,12 @@ class Game:
     def find_id(self, applist=None):
         if applist:
             """Lookup your own id in the supplied list."""
-            logging.info('Looking in applist for %s' % self.users_name)
+            logging.info('  Looking in applist for %s' % self.users_name)
             self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
 
         if self.id is None:
             """ID wasn't found in the applist. Looking for it in google."""
-            logging.info('"%s" was not found in the applist. Looking in google.' % self.users_name)
+            logging.info('  "%s" was not found in the applist. Looking in google.' % self.users_name)
             # return Game.__scrap_id_from_google__(name)
             global config
             if config["key"]:
@@ -93,7 +96,7 @@ class Game:
     @staticmethod
     def __search_id_google_api__(name, cx, key):
         """Uses google's custom search api to find your id"""
-        url = "https://www.googleapis.com/customsearch/v1?q=%s&cx=%s&key=%s&fields=items(title,link)"
+        url = "https://www.googleapis.com/customsearch/v1?q=%s&cx=%s&key=%s&fields=searchInformation(totalResults),items(title,link)"
         url %= urllib.parse.quote(name, safe=""), urllib.parse.quote(cx, safe=""), urllib.parse.quote(key, safe="")
         hdr = {'User-Agent': 'CardsTool'}
         req = urllib.request.Request(url, headers=hdr)
@@ -109,16 +112,18 @@ class Game:
         json_text = json_bytes.decode("utf-8")
         try:
             data = json.loads(json_text)
+            total_results = int(data["searchInformation"]["totalResults"])
+            if total_results < 1 or len(data["items"]) < 1:
+                logging.error("No results found for %s", name)
+                return None
 
-        except (json.decoder.JSONDecodeError, KeyError):
+
+        except (json.decoder.JSONDecodeError, KeyError, ValueError):
             logging.exception("Failed to parse google's response for %s", name)
             return None
 
-        data = data["items"]
-        if len(data) < 1:
-            return None
-        top_result = data[0]["title"]
-        top_link = data[0]["link"]
+        top_result = data["items"][0]["title"]
+        top_link = data["items"][0]["link"]
 
         app_id = top_link[top_link.index("/app/") + len("/app/"):]
         app_id = app_id[:app_id.index("/")]
@@ -128,22 +133,23 @@ class Game:
         """Use Steam's web api to find out whatever the app has cards."""
         if self.card_status_known:
             logging.info("Card status for %s is already known. Skipping fetch.", self.users_name)
-            return
+            return True
         if self.id is None:
             logging.warning("Unknown app_id: Skipping data fetch for %s.", self.users_name)
-            return
-        logging.info("Fetching card data for app %s (%s).", self.id, self.users_name)
+            return False
+        logging.info("  Fetching card data for app %s (%s).", self.id, self.users_name)
         data = Game.__app_details_steam_api__(self.id)
         if data is None:
             logging.error("Fetching Failed! app %s (%s).", self.id, self.users_name)
-            return
+            return False
 
         self.card_status_known = True
 
         for tag in data["categories"]:
             if tag["id"] == 29:  # and tag["description"] == "Steam Trading Cards":
                 self.has_cards = True
-                return
+
+        return True
 
     @staticmethod
     def __app_details_steam_api__(app_id):
@@ -279,14 +285,23 @@ class CSVExporter:
         line = [game.users_name, game.id, "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"]
         self.file_writer.writerow(line)
         if self.console_writer:
-            self.console_writer.writerow(line)
+            self.console_writer.writerow(line) # TODO figure out how to pretty print this in case I'm displaying it on the console
 
 
-def log_config(filename="log.log", log_to_console=False):
-    logging.basicConfig(filename=filename, level=logging.INFO, format='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S")
-    logging._defaultFormatter = logging.Formatter(u"%(message)s")
-    if log_to_console:
-        logging.getLogger().addHandler(logging.StreamHandler(syso))
+def log_config(filename=None, console=False, level=logging.INFO):
+    logger = logging.getLogger()
+
+    if filename:
+        bob = logging.FileHandler("log.log", encoding="utf-8")
+        bob.setFormatter(logging.Formatter(fmt='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S"))
+        logger.addHandler(bob)
+
+    if console:
+        stream = syso if console is True else console
+        joe = logging.StreamHandler(stream)
+        logger.addHandler(joe)
+
+    logger.setLevel(level)
     logging.info("------------------------------------------Starting------------------------------------------")
 
 
@@ -320,13 +335,13 @@ def users_game_list(path):
             if len(row) == 0:
                 continue
 
-            if len(row) >= 3 and string_is_int(row[-2]) and row[-1] in ["True", "False", ""]:
+            if len(row) >= 3 and string_is_int(row[-2]) and row[-1].upper() in ["TRUE", "FALSE", ""]:
                 """The line scanned is in the same format as the output of our program"""
                 name = "".join(row[:-2])
                 game = Game(name)
                 game.id = row[-2]
-                game.card_status_known = row[-1] is not ""
-                game.has_cards = bool(row[-1]) if game.card_status_known else False
+                game.card_status_known = row[-1] != ""
+                game.has_cards = game.card_status_known and row[-1].upper() == "TRUE"
             else:
                 """The line wasn't written by us. Assuming it is all one long name"""
                 name = "".join(row)
@@ -335,36 +350,47 @@ def users_game_list(path):
 
 
 def main():
+    # TODO clean main function. Maybe split into smaller functions or make it gui friendly.
+
     path_in = "Test/big_list.txt"
     path_out = "Test/big_list_out.csv"
 
+    logging.info("Loading config file")
     load_config("./config.txt")
+    logging.info("Loading AppList")
     app_list = AppList().fetch()
     export = CSVExporter(path_out, log_to_console=True)
     cooldown = 0
 
     try:
         for game in users_game_list(path_in):
+            logging.info("%d) %s", cooldown, game.users_name)
             if game.id is None:
                 succ = game.find_id(app_list)
                 if not succ:
-                    logging.error("Couldn't find ID for %r", game.users_name)
+                    logging.error("Couldn't find ID for %s", game.users_name)
 
-            game.fetch_card_info()
+            succ = game.fetch_card_info()
+            if not succ:
+                logging.error("Couldn't find cards status for %s", game.users_name)
+
+            logging.info("  exporting")
+            export.write(game)
+            logging.info("  resting")
             time.sleep(1)
             cooldown += 1
-            if cooldown >= 100:
+            if cooldown % 100 == 0:
                 logging.info("Scan card details for 100 games. Going for a 30 seconds nap (To avoid overwhelming Steam's web api).")
                 time.sleep(30)
-                cooldown = 0
+            logging.info("  back to work")
 
-            export.write(export, game)
     finally:
         export.close()
 
 
+
 if __name__ == "__main__":
     config = None
-    log_config(log_to_console=True)
-    # main()
-    logging.info("\u03a9 Ω")
+    log_config(filename="log.log", console=True)
+    main()
+    logging.shutdown()
