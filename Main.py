@@ -41,23 +41,29 @@ class Game:
     def __repr__(self):
         return "<SteamApp: %s>" % self.users_name
 
-    def find_id(self, applist=None):
+    def find_id(self, applist=None, config=None, online=True):
+        accessed_net = False
+
+        if self.id is not None:
+            logging.info("ID for %s is already known.", self.users_name)
+            return accessed_net
+
         if applist is not None:
             """Lookup your own id in the supplied list."""
-            logging.info('  Looking in applist for %s' % self.users_name)
+            logging.info('Looking in applist for %s' % self.users_name)
             self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
 
-        if self.id is None:
+        if self.id is None and online:
             """ID wasn't found in the applist. Looking for it in google."""
-            logging.info('  "%s" was not found in the applist. Looking in google.' % self.users_name)
+            logging.info('"%s" was not found in the applist. Looking in google.' % self.users_name)
             # return Game.__scrap_id_from_google__(name)
-            global config
             if config["key"] is not None:
                 self.id = Game.__search_id_google_api__(self.users_name, config["cx"], config["key"])
+                accessed_net = True
             else:
                 logging.info("Can't search google for %s because API key is not set. Skipping.", self.users_name)
 
-        return self.id
+        return accessed_net
 
     @staticmethod
     def __scrap_id_from_google__(name):
@@ -99,7 +105,6 @@ class Game:
         req = urllib.request.Request(url, headers=hdr)
 
         try:
-            time.sleep(1)
             with contextlib.closing(urllib.request.urlopen(req)) as x:
                 json_bytes = x.read()
         except urllib.error.HTTPError:
@@ -128,17 +133,20 @@ class Game:
 
     def fetch_card_info(self):
         """Use Steam's web api to find out whatever the app has cards."""
+        accessed_net = False
+
         if self.card_status_known:
             logging.info("Card status for %s is already known. Skipping fetch.", self.users_name)
-            return True
+            return accessed_net
         if self.id is None:
             logging.warning("Unknown app_id: Skipping data fetch for %s.", self.users_name)
-            return False
-        logging.info("  Fetching card data for app %s (%s).", self.id, self.users_name)
+            return accessed_net
+        logging.info("Fetching card data for app %s (%s).", self.id, self.users_name)
         data = Game.__app_details_steam_api__(self.id)
+        accessed_net = True
         if data is None:
             logging.error("Fetching Failed! app %s (%s).", self.id, self.users_name)
-            return False
+            return accessed_net
 
         self.card_status_known = True
 
@@ -146,7 +154,7 @@ class Game:
             if tag["id"] == 29:  # and tag["description"] == "Steam Trading Cards":
                 self.has_cards = True
 
-        return True
+        return accessed_net
 
     @staticmethod
     def __app_details_steam_api__(app_id):
@@ -285,11 +293,27 @@ class CSVExporter:
             self.console_writer.writerow(line)  # TODO figure out how to pretty print this in case I'm displaying it on the console
 
 
-def log_config(filename=None, console=False, level=logging.INFO):
+class Delayer:
+    def __init__(self, long_sleep_count, short_sleep_time=1, long_sleep_time=30):
+        self.count = long_sleep_count
+        self.i = long_sleep_count
+        self.short = short_sleep_time
+        self.long = long_sleep_time
+
+    def tick(self):
+        time.sleep(self.short)
+        self.i -= 1
+        if self.i <= 0:
+            self.i = self.count
+            logging.info("Accessed the internet %d times. Taking a short break to avoid overwhelming APIs.", self.count)
+            time.sleep(self.long)
+
+
+def init_log(filename=None, console=False, level=logging.INFO):
     logger = logging.getLogger()
 
     if filename is not None:
-        bob = logging.FileHandler("log.log", encoding="utf-8")
+        bob = logging.FileHandler(filename, encoding="utf-8", mode='w')
         bob.setFormatter(logging.Formatter(fmt='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S"))
         logger.addHandler(bob)
 
@@ -312,8 +336,7 @@ def string_is_int(s):
         return False
 
 
-def load_config(path):
-    global config
+def load_config_file(path):
     with open(path, encoding='UTF-8') as file:
         config = json.loads(file.read())
         if config["key"] == "123":
@@ -347,46 +370,44 @@ def users_game_list(path):
 
 
 def main():
-    # TODO clean main function. Maybe split into smaller functions or make it gui friendly.
-
     path_in = "Test/big_list.txt"
     path_out = "Test/big_list_out.csv"
 
-    logging.info("Loading config file")
-    load_config("./config.txt")
+
+    logging.info("Loading configuration file")
+    config = load_config_file("./config.txt")
     logging.info("Loading AppList")
     app_list = AppList().fetch()
+    logging.info("Creating an exporter")
     export = CSVExporter(path_out, log_to_console=True)
-    cooldown = 0
+    logging.info("Creating timer")
+    sleep = Delayer(100)
 
     try:
         for game in users_game_list(path_in):
-            logging.info("%d) %s", cooldown, game.users_name)
+            err = False
+            logging.info("Processing: %s", game.users_name)
+            accessed_net = game.find_id(app_list, config)
             if game.id is None:
-                succ = game.find_id(app_list)
-                if not succ:
-                    logging.error("Couldn't find ID for %s", game.users_name)
+                logging.error("Couldn't find ID for %s", game.users_name)
+                err = True
 
-            succ = game.fetch_card_info()
-            if not succ:
-                logging.error("Couldn't find cards status for %s", game.users_name)
+            if not err:
+                accessed_net = game.fetch_card_info() and accessed_net  # Order is important here. You don't want to short-circuit the fetch.
+                if not game.card_status_known:
+                    logging.error("Couldn't find cards status for %s", game.users_name)
+                    err = True
 
-            logging.info("  exporting")
-            export.write(game)
-            logging.info("  resting")
-            time.sleep(1)
-            cooldown += 1
-            if cooldown % 100 == 0:
-                logging.info("Scan card details for 100 games. Going for a 30 seconds nap (To avoid overwhelming Steam's web api).")
-                time.sleep(30)
-            logging.info("  back to work")
+            if not err:
+                export.write(game)
 
+            if accessed_net:  # We go to sleep if we gone online. Regardless of "err" and our success with fetching the cards.
+                sleep.tick()
     finally:
         export.close()
 
 
 if __name__ == "__main__":
-    config = None
-    log_config(filename="log.log", console=True)
+    init_log(filename="log.log", console=True)
     main()
     logging.shutdown()
