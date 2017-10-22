@@ -1,13 +1,10 @@
-# TODO Remap shortcut keys. Reformat (Alt+F). Show Intention Action (Alt+Enter). Completion (Ctrl+Space, Ctrl+Shift+Space)
-# TODO Play around with the windows. Use the real estate from your second screen for some of the bars.
+# INFO Reformat (Alt+F). Show Intention Action (Alt+Enter). Completion (Ctrl+Space, Ctrl+Shift+Space)
 
 # TODO Find out why the code sometimes hangs while processing the big list.
 # TODO cleanup the printing after you fixed the problem above
-# TODO You should go to sleep only if you actually accessed some API. No point in slowing your program for no reason.
+# FIXME You should go to sleep only if you actually accessed some API. No point in slowing your program for no reason.
 # TODO GUI
 
-
-# TODO fix: logging.info("\u03a9 Ω")
 
 
 import json
@@ -45,7 +42,7 @@ class Game:
         return "<SteamApp: %s>" % self.users_name
 
     def find_id(self, applist=None):
-        if applist:
+        if applist is not None:
             """Lookup your own id in the supplied list."""
             logging.info('  Looking in applist for %s' % self.users_name)
             self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
@@ -55,7 +52,7 @@ class Game:
             logging.info('  "%s" was not found in the applist. Looking in google.' % self.users_name)
             # return Game.__scrap_id_from_google__(name)
             global config
-            if config["key"]:
+            if config["key"] is not None:
                 self.id = Game.__search_id_google_api__(self.users_name, config["cx"], config["key"])
             else:
                 logging.info("Can't search google for %s because API key is not set. Skipping.", self.users_name)
@@ -225,7 +222,7 @@ class AppList:
 
     def fetch(self, fetch_from_net=False):
         """Fill the object with data about app names. get the data either from a local file or from the internet. Automatically access the net if the file is missing."""
-        if self.__data__:
+        if self.__data__ is not None:
             return self
 
         if fetch_from_net or not os.path.exists(AppList.FETCH_LOCAL_PATH):
@@ -284,19 +281,19 @@ class CSVExporter:
     def write(self, game):
         line = [game.users_name, game.id, "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"]
         self.file_writer.writerow(line)
-        if self.console_writer:
-            self.console_writer.writerow(line) # TODO figure out how to pretty print this in case I'm displaying it on the console
+        if self.console_writer is not None:
+            self.console_writer.writerow(line)  # TODO figure out how to pretty print this in case I'm displaying it on the console
 
 
 def log_config(filename=None, console=False, level=logging.INFO):
     logger = logging.getLogger()
 
-    if filename:
+    if filename is not None:
         bob = logging.FileHandler("log.log", encoding="utf-8")
         bob.setFormatter(logging.Formatter(fmt='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S"))
         logger.addHandler(bob)
 
-    if console:
+    if console:  # False or None means no output. True means syso output. Instance of stream means output to the stream.
         stream = syso if console is True else console
         joe = logging.StreamHandler(stream)
         logger.addHandler(joe)
@@ -386,7 +383,6 @@ def main():
 
     finally:
         export.close()
-
 
 
 if __name__ == "__main__":
