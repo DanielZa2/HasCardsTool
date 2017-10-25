@@ -1,8 +1,6 @@
 # INFO Reformat (Alt+F). Show Intention Action (Alt+Enter). Completion (Ctrl+Space, Ctrl+Shift+Space)
 
-# TODO Find out why the code sometimes hangs while processing the big list.
-# TODO cleanup the printing after you fixed the problem above
-# FIXME You should go to sleep only if you actually accessed some API. No point in slowing your program for no reason.
+# TODO Investigate why the timeout is necessary on the reads from urllib.
 # TODO GUI
 
 
@@ -16,9 +14,10 @@ import logging
 import urllib
 import urllib.parse
 import urllib.request
-import contextlib
+from contextlib import closing
 from bs4 import BeautifulSoup
 from sys import stdout as syso
+from socket import timeout
 
 
 class ParseException(Exception):
@@ -74,8 +73,8 @@ class Game:
 
         try:
             time.sleep(5)
-            with contextlib.closing(urllib.request.urlopen(req)) as x:
-                html = x.read()
+            with urllib.request.urlopen(req) as f:
+                html = f.read()
 
                 # html = urllib.request.urlopen(req).read()
         except urllib.error.HTTPError:
@@ -97,20 +96,22 @@ class Game:
             return None
 
     @staticmethod
-    def __search_id_google_api__(name, cx, key):
+    def __search_id_google_api__(name, cx, key, timeout_time=10):
         """Uses google's custom search api to find your id"""
         url = "https://www.googleapis.com/customsearch/v1?q=%s&cx=%s&key=%s&fields=searchInformation(totalResults),items(title,link)"
         url %= urllib.parse.quote(name, safe=""), urllib.parse.quote(cx, safe=""), urllib.parse.quote(key, safe="")
         hdr = {'User-Agent': 'CardsTool'}
         req = urllib.request.Request(url, headers=hdr)
-
         try:
-            with contextlib.closing(urllib.request.urlopen(req)) as x:
-                json_bytes = x.read()
+            with urllib.request.urlopen(req, timeout=timeout_time) as f:
+                json_bytes = f.read()
+                logging.debug("http response received")
+        except timeout:
+            logging.exception("Timeout while fetching %s", name)
+            return None
         except urllib.error.HTTPError:
             logging.exception("Failed while googling the name %s", name)
             return None
-
         json_text = json_bytes.decode("utf-8")
         try:
             data = json.loads(json_text)
@@ -123,7 +124,6 @@ class Game:
         except (json.decoder.JSONDecodeError, KeyError, ValueError):
             logging.exception("Failed to parse google's response for %s", name)
             return None
-
         top_result = data["items"][0]["title"]
         top_link = data["items"][0]["link"]
 
@@ -149,7 +149,6 @@ class Game:
             return accessed_net
 
         self.card_status_known = True
-
         for tag in data["categories"]:
             if tag["id"] == 29:  # and tag["description"] == "Steam Trading Cards":
                 self.has_cards = True
@@ -157,21 +156,23 @@ class Game:
         return accessed_net
 
     @staticmethod
-    def __app_details_steam_api__(app_id):
+    def __app_details_steam_api__(app_id, timeout_time=10):
         """Use Steam's web api and fetch details about the app whose ID is app_id"""
         req = urllib.request.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
-
         try:
-            json_bytes = urllib.request.urlopen(req).read()
+            with urllib.request.urlopen(req, timeout=timeout_time) as f:
+                json_bytes = f.read()
+                logging.debug("http response received")
 
+        except timeout:
+            logging.error("Timeout while getting details for %s. \n\t%s", app_id, req)
+            return None
         except urllib.error.HTTPError:
             logging.exception("Failed getting details for app number %s", app_id)
             return None
-
         json_text = json_bytes.decode("utf-8")
         try:
             game_info = json.loads(json_text)
-
             if not game_info[app_id]["success"]:
                 return None
 
@@ -198,7 +199,8 @@ class AppList:
         """Fetch new AppList from the web. See: http://api.steampowered.com/ISteamApps/GetAppList/v0001/ """
         req = urllib.request.Request(url)
         try:
-            json_bytes = urllib.request.urlopen(req).read()
+            with urllib.request.urlopen(req) as f:
+                json_bytes = f.read()
         except urllib.error.HTTPError:
             logging.exception("Failed to fetch applist from net")
             return None
@@ -228,12 +230,12 @@ class AppList:
             logging.exception("Failed to parse fetched applist")
             return None
 
-    def fetch(self, fetch_from_net=False):
+    def fetch(self, always_fetch_from_net=False):
         """Fill the object with data about app names. get the data either from a local file or from the internet. Automatically access the net if the file is missing."""
         if self.__data__ is not None:
             return self
 
-        if fetch_from_net or not os.path.exists(AppList.FETCH_LOCAL_PATH):
+        if always_fetch_from_net or not os.path.exists(AppList.FETCH_LOCAL_PATH):
             json_text = AppList.fetch_from_net()
             self.__data__ = AppList.json_to_list(json_text)
             AppList.write_apps_to_disk(json_text)
@@ -248,6 +250,7 @@ class AppList:
         id_strings = [str(pair["appid"]) for pair in self.__data__]
         pairs = zip(simplified_names, id_strings)
 
+        # TODO optimize the next line. this is the line that makes creating an applist such a long time. Not a net access. (Wow!)
         self.name_lookup = {name: appid for (name, appid) in pairs if simplified_names.count(name) == 1}
 
         return self
@@ -278,10 +281,10 @@ def simplified_name(name):
 
 
 class CSVExporter:
-    def __init__(self, filename, log_to_console=False):
+    def __init__(self, filename, copy_to_log=True):
         self.file = open(filename, mode="w", encoding='UTF-8', newline='')
         self.file_writer = csv.writer(self.file)
-        self.console_writer = csv.writer(syso) if log_to_console else None
+        self.log_to_console = copy_to_log
 
     def close(self):
         self.file.close()
@@ -289,12 +292,12 @@ class CSVExporter:
     def write(self, game):
         line = [game.users_name, game.id, "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"]
         self.file_writer.writerow(line)
-        if self.console_writer is not None:
-            self.console_writer.writerow(line)  # TODO figure out how to pretty print this in case I'm displaying it on the console
+        if self.copy_to_log:
+            logging.info("%s (%s): [%s]", line[0], line[1], line[2])
 
 
 class Delayer:
-    def __init__(self, long_sleep_count, short_sleep_time=1, long_sleep_time=30):
+    def __init__(self, long_sleep_count, short_sleep_time=1.5, long_sleep_time=30):
         self.count = long_sleep_count
         self.i = long_sleep_count
         self.short = short_sleep_time
@@ -309,24 +312,23 @@ class Delayer:
             time.sleep(self.long)
 
 
-def init_log(filename=None, console=False, level=logging.INFO):
+def init_log(filename=None, console=False, level=logging.WARNING):
     logger = logging.getLogger()
 
     if filename is not None:
-        bob = logging.FileHandler(filename, encoding="utf-8", mode='w')
-        bob.setFormatter(logging.Formatter(fmt='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S"))
-        logger.addHandler(bob)
+        handler = logging.FileHandler(filename, encoding="utf-8", mode='w')
+        handler.setFormatter(logging.Formatter(fmt='%(asctime)s     %(levelname)s:%(message)s', datefmt="%Y-%m-%d %H:%M:%S"))
+        logger.addHandler(handler)
 
     if console:  # False or None means no output. True means syso output. Instance of stream means output to the stream.
         stream = syso if console is True else console
-        joe = logging.StreamHandler(stream)
-        logger.addHandler(joe)
+        handler = logging.StreamHandler(stream)
+        logger.addHandler(handler)
 
     logger.setLevel(level)
-    logging.info("------------------------------------------Starting------------------------------------------")
 
 
-def string_is_int(s):
+def string_represent_int(s):
     """Source: https://stackoverflow.com/a/1267145/2842452"""
     try:
         int(s)
@@ -355,7 +357,7 @@ def users_game_list(path):
             if len(row) == 0:
                 continue
 
-            if len(row) >= 3 and string_is_int(row[-2]) and row[-1].upper() in ["TRUE", "FALSE", ""]:
+            if len(row) >= 3 and string_represent_int(row[-2]) and row[-1].upper() in ["TRUE", "FALSE", ""]:
                 """The line scanned is in the same format as the output of our program"""
                 name = "".join(row[:-2])
                 game = Game(name)
@@ -378,12 +380,11 @@ def main():
     config = load_config_file("./config.txt")
     logging.info("Loading AppList")
     app_list = AppList().fetch()
-    logging.info("Creating an exporter")
-    export = CSVExporter(path_out, log_to_console=True)
     logging.info("Creating timer")
     sleep = Delayer(100)
+    logging.info("Creating an exporter")
+    with closing(CSVExporter(path_out, copy_to_log=True)) as export:
 
-    try:
         for game in users_game_list(path_in):
             err = False
             logging.info("Processing: %s", game.users_name)
@@ -403,11 +404,9 @@ def main():
 
             if accessed_net:  # We go to sleep if we gone online. Regardless of "err" and our success with fetching the cards.
                 sleep.tick()
-    finally:
-        export.close()
 
 
 if __name__ == "__main__":
-    init_log(filename="log.log", console=True)
+    init_log(filename="log.txt", console=True, level=logging.DEBUG)
     main()
     logging.shutdown()

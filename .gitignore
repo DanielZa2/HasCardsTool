@@ -97,5 +97,6 @@ Test/
 Log/
 Output/
 Applist.txt
+log.txt
 config.txt
 Main2.py
