@@ -1,6 +1,5 @@
-# INFO Reformat (Alt+F). Show Intention Action (Alt+Enter). Completion (Ctrl+Space, Ctrl+Shift+Space)
+# LOOK Reformat (Alt+F). Show Intention Action (Alt+Enter). Completion (Ctrl+Space, Ctrl+Shift+Space)
 
-# TODO Investigate why the timeout is necessary on the reads from urllib.
 # TODO GUI
 
 
@@ -107,7 +106,7 @@ class Game:
                 json_bytes = f.read()
                 logging.debug("http response received")
         except timeout:
-            logging.exception("Timeout while fetching %s", name)
+            logging.error("Timeout while getting appid for %s. \n\t\t%s", name, req.get_full_url())
             return None
         except urllib.error.HTTPError:
             logging.exception("Failed while googling the name %s", name)
@@ -156,7 +155,7 @@ class Game:
         return accessed_net
 
     @staticmethod
-    def __app_details_steam_api__(app_id, timeout_time=10):
+    def __app_details_steam_api__(app_id, timeout_time=20):
         """Use Steam's web api and fetch details about the app whose ID is app_id"""
         req = urllib.request.Request("http://store.steampowered.com/api/appdetails/?appids=" + app_id)
         try:
@@ -165,7 +164,7 @@ class Game:
                 logging.debug("http response received")
 
         except timeout:
-            logging.error("Timeout while getting details for %s. \n\t%s", app_id, req)
+            logging.error("Timeout while getting details for %s. \n\t\t%s", app_id, req.get_full_url())
             return None
         except urllib.error.HTTPError:
             logging.exception("Failed getting details for app number %s", app_id)
@@ -250,7 +249,6 @@ class AppList:
         id_strings = [str(pair["appid"]) for pair in self.__data__]
         pairs = zip(simplified_names, id_strings)
 
-        # TODO optimize the next line. this is the line that makes creating an applist such a long time. Not a net access. (Wow!)
         self.name_lookup = {name: appid for (name, appid) in pairs if simplified_names.count(name) == 1}
 
         return self
@@ -284,7 +282,7 @@ class CSVExporter:
     def __init__(self, filename, copy_to_log=True):
         self.file = open(filename, mode="w", encoding='UTF-8', newline='')
         self.file_writer = csv.writer(self.file)
-        self.log_to_console = copy_to_log
+        self.copy_to_log = copy_to_log
 
     def close(self):
         self.file.close()
@@ -297,7 +295,7 @@ class CSVExporter:
 
 
 class Delayer:
-    def __init__(self, long_sleep_count, short_sleep_time=1.5, long_sleep_time=30):
+    def __init__(self, long_sleep_count=50, short_sleep_time=1.5, long_sleep_time=15):
         self.count = long_sleep_count
         self.i = long_sleep_count
         self.short = short_sleep_time
@@ -381,7 +379,7 @@ def main():
     logging.info("Loading AppList")
     app_list = AppList().fetch()
     logging.info("Creating timer")
-    sleep = Delayer(100)
+    sleep = Delayer(50, 1.5, 15)
     logging.info("Creating an exporter")
     with closing(CSVExporter(path_out, copy_to_log=True)) as export:
 
@@ -394,7 +392,7 @@ def main():
                 err = True
 
             if not err:
-                accessed_net = game.fetch_card_info() and accessed_net  # Order is important here. You don't want to short-circuit the fetch.
+                accessed_net = game.fetch_card_info() or accessed_net  # Order is important here. You don't want to short-circuit the fetch.
                 if not game.card_status_known:
                     logging.error("Couldn't find cards status for %s", game.users_name)
                     err = True
