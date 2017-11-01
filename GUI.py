@@ -186,7 +186,7 @@ class Exporter:
 
 
 
-class Bob:
+class Main:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(st.program_title)
