@@ -19,9 +19,6 @@ from sys import stdout as syso
 from socket import timeout
 
 
-class ParseException(Exception):
-    pass
-
 
 class Game:
     """Describe a single steam app. More often than not, a game. Could also represent software, DLC, and anything bought from steam."""
@@ -374,6 +371,7 @@ def main():
     path_out = "Test/big_list_out.csv"
 
 
+    init_log(filename="log.txt", console=True, level=logging.DEBUG)
     logging.info("Loading configuration file")
     config = load_config_file("./config.txt")
     logging.info("Loading AppList")
@@ -403,8 +401,8 @@ def main():
             if accessed_net:  # We go to sleep if we gone online. Regardless of "err" and our success with fetching the cards.
                 sleep.tick()
 
+    logging.shutdown()
+
 
 if __name__ == "__main__":
-    init_log(filename="log.txt", console=True, level=logging.DEBUG)
     main()
-    logging.shutdown()

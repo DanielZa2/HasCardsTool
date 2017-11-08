@@ -4,7 +4,7 @@ All the strings displayed to the user should be stored here. This way it is easi
 
 program_title = "Categories exporter"
 
-exporter_instruction = \
+instruction = \
         ("INSTRUCTION:\n"
          " Select backup to copy sharedconfig.vdf to a safe location.\n"
          " Select retore to copy it back to steam. Current sharedconfig.vdf would be renamed (no files are deleted).\n"
