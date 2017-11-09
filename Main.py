@@ -101,7 +101,6 @@ class Game:
         try:
             with urllib.request.urlopen(req, timeout=timeout_time) as f:
                 json_bytes = f.read()
-                logging.debug("http response received")
         except timeout:
             logging.error("Timeout while getting appid for %s. \n\t\t%s", name, req.get_full_url())
             return None
@@ -158,7 +157,6 @@ class Game:
         try:
             with urllib.request.urlopen(req, timeout=timeout_time) as f:
                 json_bytes = f.read()
-                logging.debug("http response received")
 
         except timeout:
             logging.error("Timeout while getting details for %s. \n\t\t%s", app_id, req.get_full_url())
@@ -343,7 +341,7 @@ def load_config_file(path):
         return config
 
 
-def users_game_list(path):
+def users_game_gen(path):
     """Reads the file located in path and creates a Game object for each game written there. One game name per line."""
 
     with open(path, encoding='UTF-8', newline="") as file:
@@ -366,6 +364,10 @@ def users_game_list(path):
             yield game
 
 
+def users_game_list(path):
+    return list(users_game_gen(path))
+
+
 def main():
     path_in = "Test/big_list.txt"
     path_out = "Test/big_list_out.csv"
@@ -381,7 +383,7 @@ def main():
     logging.info("Creating an exporter")
     with closing(CSVExporter(path_out, copy_to_log=True)) as export:
 
-        for game in users_game_list(path_in):
+        for game in users_game_gen(path_in):
             err = False
             logging.info("Processing: %s", game.users_name)
             accessed_net = game.find_id(app_list, config)
