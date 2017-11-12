@@ -1,3 +1,4 @@
+import threading
 import tkinter as tk
 import tkinter.filedialog
 import tkinter.messagebox
@@ -19,6 +20,7 @@ class Main:
 
         self.text_output = tk.Text(self.frame_text, width=65)
         self.text_output.pack(side=tk.LEFT)
+        self.text_output.insert(tk.END, st.instruction)
 
         self.scroll_text = tk.Scrollbar(self.frame_text, orient=tk.VERTICAL, command=self.text_output.yview)
         self.scroll_text.pack(side=tk.RIGHT, fill=tk.Y)
@@ -45,6 +47,7 @@ class Main:
         self.exporter = None
         self.input_location = None
         self.input_list = None
+        self.thread = None
 
     def __scroll_handler__(self, *l):
         """Source: http://infohost.nmt.edu/~shipman/soft/tkinter/web/entry.html"""
@@ -59,8 +62,10 @@ class Main:
     def start(self):
         """Start the main window"""
         logging.info("Loading configuration file")
+        self.text_output.insert(tk.END, "Loading configuration file...\n")
         self.config = bk.load_config_file("./config.txt")
-        logging.info("Creating timer")
+        logging.info("Creating delay timer")
+        self.text_output.insert(tk.END, "Creating delay timer...\n")
         self.sleepy = bk.Delayer(50, 1.5, 15)
         self.root.mainloop()
 
@@ -73,8 +78,8 @@ class Main:
         self.checkbox_online_var = not self.checkbox_online_var
 
     def action_open(self):
-        file_types = [(st.csv_file, "*.csv"), (st.text_file, "*.txt"), (st.all_file, "*.*")]
-        selection = tk.filedialog.askopenfilename(parent=self.root, title=st.title_save, defaultextension=".csv", filetypes=file_types)
+        file_types = [(st.all_file, "*.*"), (st.csv_file, "*.csv"), (st.text_file, "*.txt")]
+        selection = tk.filedialog.askopenfilename(parent=self.root, title=st.title_save, filetypes=file_types)
 
         if selection:
             logging.info("Received input location %s", selection)
@@ -88,20 +93,32 @@ class Main:
         selection = tk.filedialog.asksaveasfilename(parent=self.root, title=st.title_open, defaultextension=".csv", filetypes=file_types)
 
         if selection:
-            logging.info("Creating an exporter")
-            self.exporter = bk.CSVExporter(selection, copy_to_log=True) # TODO pass self.text_output to the exporter and make him write to it.
+            if self.exporter is not None:
+                self.exporter.close()
+
+            logging.info("Creating an exporter to %s", selection)
+            self.text_output.insert(tk.END, "Creating exporter...\n")
+            self.exporter = bk.Exporter(bk.Exporter.CSVFile(selection), bk.Exporter.TextBox(self.text_output, tk.END))
             self.button_start.config(state=tk.NORMAL)
 
 
 
     def action_start(self):
+        self.button_open.config(state=tk.DISABLED)
+        self.button_save.config(state=tk.DISABLED)
+        self.button_start.config(state=tk.DISABLED)
+        self.thread = threading.Thread(target=self.action_start_parallel)
+        self.thread.start()  # TODO handle the case where the program is terminated before the thread.
+
+    def action_start_parallel(self):
         if self.app_list is None:
             logging.info("Loading AppList")
+            self.text_output.insert(tk.END, "Loading AppList...\n\n")
             self.app_list = bk.AppList().fetch()
 
         for game in self.input_list:
             logging.info("Processing: %s", game.users_name)
-            accessed_net = game.find_id(self.app_list, self.config, self.checkbox_online_var) # TODO check and make sure that this actually works.
+            accessed_net = game.find_id(self.app_list, self.config, self.checkbox_online_var)
             if game.id is None:
                 logging.error("Couldn't find ID for %s", game.users_name)
             else:
@@ -114,12 +131,13 @@ class Main:
             if accessed_net:  # We go to sleep if we gone online. Regardless of "err" and our success with fetching the cards.
                 self.sleepy.tick()
 
-        self.exporter.close()
-        self.exporter = None
-        self.button_start.config(state=tk.DISABLED)
+        self.exporter.flush()
+        self.text_output.insert(tk.END, "       Finished.\n")
 
-
-
+        self.button_open.config(state=tk.NORMAL)
+        self.button_save.config(state=tk.NORMAL)
+        self.button_start.config(state=tk.NORMAL)
+        self.thread = None
 
 
 

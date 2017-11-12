@@ -8,7 +8,8 @@ instruction = \
         ("INSTRUCTION:\n"
          " Select backup to copy sharedconfig.vdf to a safe location.\n"
          " Select retore to copy it back to steam. Current sharedconfig.vdf would be renamed (no files are deleted).\n"
-         " Select export to read it in an easy-to-read format.")
+         " Select export to read it in an easy-to-read format.\n"
+         "\n\tLog:\n")
 
 button_open = "Open list"
 button_save = "Save target"
@@ -25,7 +26,5 @@ csv_file = "Comma Separated Values file"
 all_file = "all files"
 
 
-error_save = "Save Error"
-error_save_same_input_output = "Save error: Source and target file are the same"
-
+#TODO export all the strings to this file
 
