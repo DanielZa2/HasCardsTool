@@ -72,13 +72,16 @@ class Main:
         self.root.mainloop()
 
     def close(self):
-        if self.exporter is not None:
-            self.exporter.close()
         with self.thread_lock_cond:
             if self.thread_obj is not None:
                 self.thread_stop = True
+        if self.thread_obj is not None:
+            self.thread_obj.join()
 
-        self.thread_obj.join()
+        if self.exporter is not None:
+            self.exporter.close()
+
+
 
 
     def action_checkbox(self):
@@ -158,7 +161,6 @@ class Main:
         self.button_open.config(state=tk.NORMAL)
         self.button_save.config(state=tk.NORMAL)
         self.button_start.config(state=tk.NORMAL)
-        self.thread_obj = None
 
 
 
