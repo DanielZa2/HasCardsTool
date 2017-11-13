@@ -7,7 +7,7 @@ import ResourceStrings as st
 import logging
 from contextlib import closing
 
-
+#TODO resizing of the window
 
 
 class Main:
@@ -18,7 +18,7 @@ class Main:
         self.frame_text = tk.Frame(self.root)
         self.frame_text.pack(side=tk.LEFT)
 
-        self.text_output = tk.Text(self.frame_text, width=65)
+        self.text_output = tk.Text(self.frame_text, width=65, wrap=tk.WORD)
         self.text_output.pack(side=tk.LEFT)
         self.text_output.insert(tk.END, st.instruction)
 
@@ -64,10 +64,16 @@ class Main:
     def start(self):
         """Start the main window"""
         logging.info("Loading configuration file")
-        self.text_output.insert(tk.END, "Loading configuration file...\n")
+        self.text_output.insert(tk.END, st.loading_config)
         self.config = bk.load_config_file("./config.txt")
+        if self.config["key"] is None:
+            self.text_output.insert(tk.END, st.google_not_found)
+            self.checkbox_online.deselect()
+            self.checkbox_online_var = False
+            self.checkbox_online.config(state=tk.DISABLED)
+
         logging.info("Creating delay timer")
-        self.text_output.insert(tk.END, "Creating delay timer...\n")
+        self.text_output.insert(tk.END, st.loading_delay)
         self.sleepy = bk.Delayer(50, 1.5, 15)
         self.root.mainloop()
 
@@ -108,7 +114,7 @@ class Main:
                 self.exporter.close()
 
             logging.info("Creating an exporter to %s", selection)
-            self.text_output.insert(tk.END, "Creating exporter...\n")
+            self.text_output.insert(tk.END, st.loading_exporter)
             self.exporter = bk.Exporter(bk.Exporter.CSVFile(selection), bk.Exporter.TextBox(self.text_output, tk.END))
             self.button_start.config(state=tk.NORMAL)
 
@@ -128,7 +134,7 @@ class Main:
                     return
                 else:
                     logging.info("Loading AppList")
-                    self.text_output.insert(tk.END, "Loading AppList...\n\n")
+                    self.text_output.insert(tk.END, st.loading_applist)
             self.app_list = bk.AppList().fetch()
 
         for game in self.input_list:
@@ -156,7 +162,7 @@ class Main:
                 return
             else:
                 self.exporter.flush()
-                self.text_output.insert(tk.END, "       Finished.\n")
+                self.text_output.insert(tk.END, st.done)
 
         self.button_open.config(state=tk.NORMAL)
         self.button_save.config(state=tk.NORMAL)

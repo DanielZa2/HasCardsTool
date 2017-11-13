@@ -391,7 +391,7 @@ def string_represent_int(s):
 def load_config_file(path):
     with open(path, encoding='UTF-8') as file:
         config = json.loads(file.read())
-        if config["key"] == "123":
+        if config["key"] == "YOUR_KEY_HERE":
             config["key"] = None
             logging.warning("No Google API key is set. Using google search is impossible.")
 
