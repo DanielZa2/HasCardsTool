@@ -42,9 +42,10 @@ class Game:
             return accessed_net
 
         if applist is not None:
-            """Lookup your own id in the supplied list."""
-            logging.info('Looking in applist for %s' % self.users_name)
-            self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
+            """Lookup your own id in the supplied list. If there are multiple games with this name it is better to leave the decision to google, if possible."""
+            if not online or not applist.contains_duplicates(self.simplified_name):
+                logging.info('Looking in applist for %s' % self.users_name)
+                self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
 
         if self.id is None and online:
             """ID wasn't found in the applist. Looking for it in google."""
@@ -187,6 +188,7 @@ class AppList:
         self.__data__ = None
         self.id_lookup = None
         self.name_lookup = None
+        self.simplified_names = None
 
     @staticmethod
     def fetch_from_net(url=FETCH_URL):
@@ -240,13 +242,14 @@ class AppList:
         self.id_lookup = {pair["appid"]: pair["name"] for pair in self.__data__}
 
         # Lookup name->appid. It is possible that there are multiple games with the same name. Remove all of them. Handle it latter in the code.
-        simplified_names = [simplified_name(pair["name"]) for pair in self.__data__]
+        self.simplified_names = [simplified_name(pair["name"]) for pair in self.__data__]
         id_strings = [str(pair["appid"]) for pair in self.__data__]
-        pairs = zip(simplified_names, id_strings)
 
-        self.name_lookup = {name: appid for (name, appid) in pairs if simplified_names.count(name) == 1}
-
+        self.name_lookup = {name: appid for (name, appid) in zip(self.simplified_names, id_strings)}
         return self
+
+    def contains_duplicates(self, name):
+        return self.simplified_names.count(name) > 1
 
 
 def simplified_name(name):
