@@ -47,7 +47,9 @@ class Main:
         self.exporter = None
         self.input_location = None
         self.input_list = None
-        self.thread = None
+        self.thread_obj = None
+        self.thread_stop = False
+        self.thread_lock_cond = threading.Condition()
 
     def __scroll_handler__(self, *l):
         """Source: http://infohost.nmt.edu/~shipman/soft/tkinter/web/entry.html"""
@@ -72,6 +74,12 @@ class Main:
     def close(self):
         if self.exporter is not None:
             self.exporter.close()
+        with self.thread_lock_cond:
+            if self.thread_obj is not None:
+                self.thread_stop = True
+
+        self.thread_obj.join()
+
 
     def action_checkbox(self):
         """Bound to the checkbox. Toggles the variable telling us whatever we should show the legal symbols in the output."""
@@ -107,13 +115,17 @@ class Main:
         self.button_open.config(state=tk.DISABLED)
         self.button_save.config(state=tk.DISABLED)
         self.button_start.config(state=tk.DISABLED)
-        self.thread = threading.Thread(target=self.action_start_parallel)
-        self.thread.start()  # TODO handle the case where the program is terminated before the thread.
+        self.thread_obj = threading.Thread(target=self.action_start_parallel)
+        self.thread_obj.start()
 
     def action_start_parallel(self):
         if self.app_list is None:
-            logging.info("Loading AppList")
-            self.text_output.insert(tk.END, "Loading AppList...\n\n")
+            with self.thread_lock_cond:
+                if self.thread_stop:
+                    return
+                else:
+                    logging.info("Loading AppList")
+                    self.text_output.insert(tk.END, "Loading AppList...\n\n")
             self.app_list = bk.AppList().fetch()
 
         for game in self.input_list:
@@ -126,18 +138,27 @@ class Main:
                 if not game.card_status_known:
                     logging.error("Couldn't find cards status for %s", game.users_name)
 
-            self.exporter.write(game)
+            with self.thread_lock_cond:
+                if self.thread_stop:
+                    break
+                else:
+                    self.exporter.write(game)
+
 
             if accessed_net:  # We go to sleep if we gone online. Regardless of "err" and our success with fetching the cards.
                 self.sleepy.tick()
 
-        self.exporter.flush()
-        self.text_output.insert(tk.END, "       Finished.\n")
+        with self.thread_lock_cond:
+            if self.thread_stop:
+                return
+            else:
+                self.exporter.flush()
+                self.text_output.insert(tk.END, "       Finished.\n")
 
         self.button_open.config(state=tk.NORMAL)
         self.button_save.config(state=tk.NORMAL)
         self.button_start.config(state=tk.NORMAL)
-        self.thread = None
+        self.thread_obj = None
 
 
 
