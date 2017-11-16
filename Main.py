@@ -1,6 +1,5 @@
 # LOOK Reformat (Alt+F). Show Intention Action (Alt+Enter). Completion (Ctrl+Space, Ctrl+Shift+Space)
 
-# TODO GUI
 
 
 
@@ -17,10 +16,6 @@ from contextlib import closing
 from bs4 import BeautifulSoup
 from sys import stdout as syso
 from socket import timeout
-
-
-class ParseException(Exception):
-    pass
 
 
 class Game:
@@ -47,9 +42,10 @@ class Game:
             return accessed_net
 
         if applist is not None:
-            """Lookup your own id in the supplied list."""
-            logging.info('Looking in applist for %s' % self.users_name)
-            self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
+            """Lookup your own id in the supplied list. If there are multiple games with this name it is better to leave the decision to google, if possible."""
+            if not online or not applist.contains_duplicates(self.simplified_name):
+                logging.info('Looking in applist for %s' % self.users_name)
+                self.id = applist.name_lookup.get(self.simplified_name, None)  # default value = None
 
         if self.id is None and online:
             """ID wasn't found in the applist. Looking for it in google."""
@@ -61,6 +57,8 @@ class Game:
             else:
                 logging.info("Can't search google for %s because API key is not set. Skipping.", self.users_name)
 
+        if self.id is not None:
+            logging.info("ID for %s is found. %s", self.users_name, self.id)
         return accessed_net
 
     @staticmethod
@@ -104,7 +102,6 @@ class Game:
         try:
             with urllib.request.urlopen(req, timeout=timeout_time) as f:
                 json_bytes = f.read()
-                logging.debug("http response received")
         except timeout:
             logging.error("Timeout while getting appid for %s. \n\t\t%s", name, req.get_full_url())
             return None
@@ -135,7 +132,7 @@ class Game:
         accessed_net = False
 
         if self.card_status_known:
-            logging.info("Card status for %s is already known. Skipping fetch.", self.users_name)
+            logging.info("Card status for %s is already known. %s. Skipping fetch.", self.users_name, self.has_cards)
             return accessed_net
         if self.id is None:
             logging.warning("Unknown app_id: Skipping data fetch for %s.", self.users_name)
@@ -151,7 +148,7 @@ class Game:
         for tag in data["categories"]:
             if tag["id"] == 29:  # and tag["description"] == "Steam Trading Cards":
                 self.has_cards = True
-
+        logging.info("Card status for %s is found. %s", self.users_name, self.has_cards)
         return accessed_net
 
     @staticmethod
@@ -161,7 +158,6 @@ class Game:
         try:
             with urllib.request.urlopen(req, timeout=timeout_time) as f:
                 json_bytes = f.read()
-                logging.debug("http response received")
 
         except timeout:
             logging.error("Timeout while getting details for %s. \n\t\t%s", app_id, req.get_full_url())
@@ -192,6 +188,7 @@ class AppList:
         self.__data__ = None
         self.id_lookup = None
         self.name_lookup = None
+        self.simplified_names = None
 
     @staticmethod
     def fetch_from_net(url=FETCH_URL):
@@ -245,13 +242,14 @@ class AppList:
         self.id_lookup = {pair["appid"]: pair["name"] for pair in self.__data__}
 
         # Lookup name->appid. It is possible that there are multiple games with the same name. Remove all of them. Handle it latter in the code.
-        simplified_names = [simplified_name(pair["name"]) for pair in self.__data__]
+        self.simplified_names = [simplified_name(pair["name"]) for pair in self.__data__]
         id_strings = [str(pair["appid"]) for pair in self.__data__]
-        pairs = zip(simplified_names, id_strings)
 
-        self.name_lookup = {name: appid for (name, appid) in pairs if simplified_names.count(name) == 1}
-
+        self.name_lookup = {name: appid for (name, appid) in zip(self.simplified_names, id_strings)}
         return self
+
+    def contains_duplicates(self, name):
+        return self.simplified_names.count(name) > 1
 
 
 def simplified_name(name):
@@ -278,20 +276,74 @@ def simplified_name(name):
     return ret
 
 
-class CSVExporter:
-    def __init__(self, filename, copy_to_log=True):
-        self.file = open(filename, mode="w", encoding='UTF-8', newline='')
-        self.file_writer = csv.writer(self.file)
-        self.copy_to_log = copy_to_log
+class Exporter:
+    def __init__(self, *args):
+        self.exporter_list = list(args)
 
-    def close(self):
-        self.file.close()
+
+    def add_output(self, exporter):
+        self.exporter_list.append(exporter)
+
 
     def write(self, game):
-        line = [game.users_name, game.id, "" if not game.card_status_known else "TRUE" if game.has_cards else "FALSE"]
-        self.file_writer.writerow(line)
-        if self.copy_to_log:
-            logging.info("%s (%s): [%s]", line[0], line[1], line[2])
+        for e in self.exporter_list:
+            e.write(game.users_name, game.id, game.card_status_known, game.has_cards)
+
+    def close(self):
+        for e in self.exporter_list:
+            if callable(getattr(e, "close", None)):
+                e.close()
+
+    def flush(self):
+        for e in self.exporter_list:
+            if callable(getattr(e, "flush", None)):
+                e.flush()
+
+    class CSVFile:
+
+        def __init__(self, filename):
+            self.file = open(filename, mode="w", encoding='UTF-8', newline='')
+            self.file_writer = csv.writer(self.file)
+
+        def close(self):
+            self.file.close()
+
+        def flush(self):
+            """Source: https://stackoverflow.com/a/19756479/2842452"""
+            self.file.truncate()
+            self.file.seek(0, 0)
+            self.file.flush()
+            os.fsync(self.file.fileno())
+
+
+
+        def write(self, name, appid, card_status_known, has_cards):
+            appid = str(appid) if appid is not None else ""
+            status = "" if not card_status_known else "TRUE" if has_cards else "FALSE"
+            self.file_writer.writerow([name, appid, status])
+
+    class Log:
+
+        def __init__(self, level=logging.INFO):
+            self.level = level
+
+
+        def write(self, name, appid, card_status_known, has_cards):
+            appid = str(appid) if appid is not None else "?"
+            status = "?" if not card_status_known else "TRUE" if has_cards else "FALSE"
+            logging.log(self.level, "%s (%s): [%s]", name, appid, status)
+
+    class TextBox:
+
+        def __init__(self, box, index):
+            self.box = box
+            self.index = index
+
+        def write(self, name, appid, card_status_known, has_cards):
+            appid = str(appid) if appid is not None else "?"
+            status = "?" if not card_status_known else "TRUE" if has_cards else "FALSE"
+            self.box.insert(self.index, "%s (%s): [%s]\n" % (name, appid, status))
+
 
 
 class Delayer:
@@ -339,14 +391,14 @@ def string_represent_int(s):
 def load_config_file(path):
     with open(path, encoding='UTF-8') as file:
         config = json.loads(file.read())
-        if config["key"] == "123":
+        if config["key"] == "YOUR_KEY_HERE":
             config["key"] = None
             logging.warning("No Google API key is set. Using google search is impossible.")
 
         return config
 
 
-def users_game_list(path):
+def users_game_gen(path):
     """Reads the file located in path and creates a Game object for each game written there. One game name per line."""
 
     with open(path, encoding='UTF-8', newline="") as file:
@@ -369,11 +421,15 @@ def users_game_list(path):
             yield game
 
 
+def users_game_list(path):
+    return list(users_game_gen(path))
+
+
 def main():
     path_in = "Test/big_list.txt"
     path_out = "Test/big_list_out.csv"
 
-
+    init_log(filename="log.txt", console=True, level=logging.DEBUG)
     logging.info("Loading configuration file")
     config = load_config_file("./config.txt")
     logging.info("Loading AppList")
@@ -381,9 +437,9 @@ def main():
     logging.info("Creating timer")
     sleep = Delayer(50, 1.5, 15)
     logging.info("Creating an exporter")
-    with closing(CSVExporter(path_out, copy_to_log=True)) as export:
+    with closing(Exporter(Exporter.CSVFile(path_out), Exporter.Log())) as export:
 
-        for game in users_game_list(path_in):
+        for game in users_game_gen(path_in):
             err = False
             logging.info("Processing: %s", game.users_name)
             accessed_net = game.find_id(app_list, config)
@@ -403,8 +459,8 @@ def main():
             if accessed_net:  # We go to sleep if we gone online. Regardless of "err" and our success with fetching the cards.
                 sleep.tick()
 
+    logging.shutdown()
+
 
 if __name__ == "__main__":
-    init_log(filename="log.txt", console=True, level=logging.DEBUG)
     main()
-    logging.shutdown()

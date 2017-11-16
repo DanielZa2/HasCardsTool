@@ -2,51 +2,36 @@
 All the strings displayed to the user should be stored here. This way it is easier to change wording / spelling. It is also nice if it'll ever get translated.
 """
 
-program_title = "Categories exporter"
+program_title = "Cards Tool"
 
-exporter_instruction = \
+instruction = \
         ("INSTRUCTION:\n"
-         " Select backup to copy sharedconfig.vdf to a safe location.\n"
-         " Select retore to copy it back to steam. Current sharedconfig.vdf would be renamed (no files are deleted).\n"
-         " Select export to read it in an easy-to-read format.")
+         "Select a file with a list of games to scan. The selected file can either be a simple text file or an output csv file from a previous run. "
+         "The output csv file will contain information about the Steam AppIDs and cards of all scanned games. "
+         "You can append new games to the end of the file in order to save processing time for every game scanned before. "
+         "\n\n\tLog:\n")
 
-selector_instruction = \
-    ("INSTRUCTION:\n"
-     " Select the steam users you want to backup / export.\n"
-     " If your user isn't listed on the box bellow you can add it by browsing to:\n"
-     " Steam\\userdata\\<USER_ID>\\7\\remote\\sharedconfig.vdf")
+button_open = "Open list"
+button_save = "Save target"
+button_start = "Start"
+checkbox_online = "Use Google?"
 
-
-exporter_button_backup = "Backup"
-exporter_button_restore = "Restore"
-exporter_button_export = "Export"
-selector_button_select = "Select"
-selector_button_browse = "Browse"
-exporter_checkbox_legal = "Hide © and ™"
-exporter_text_prefix = "Selected Steam Location:\n"
-
-exporter_title_backup = "Save backup to.."
-exporter_title_restore = "Restore backup from.."
-exporter_title_export = "Export to.."
-selector_title_browse = "Select sharecondig.vdf.."
+title_open = "Open"
+title_save = "Save"
 
 text_file = "Text file"
 vdf_file = "Valve's Data Format"
 json_file = "JSON file"
+csv_file = "Comma Separated Values file"
 all_file = "all files"
 
 
 
-sharedconfigvdf = "sharedconfig.vdf"
-
-
-
-
-error_backup = "Backup Error"
-error_backup_text_same = "Backup error: Source and target file are the same"
-error_backup_text_not_vdf = "Backup error: The source file is probably not sharedconfig.vdf"
-error_restore = "Restore Error"
-error_restore_text_same = "Restore error: Source and target file are the same"
-error_restore_text_not_vdf = "Restore error: The source file is probably not sharedconfig.vdf"
+loading_config = "Loading configuration file...\n"
+loading_delay = "Creating delay timer...\n"
+loading_exporter = "Creating exporter...\n"
+google_not_found = "\tGoogle search key is not found.\n\tGoogle use is disabled.\n\t(See readme file for details)\n"
+loading_applist = "Loading AppList...\n\n"
+done = "       Finished.\n"
 
 
