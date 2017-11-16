@@ -9,7 +9,7 @@ instruction = \
          "Select a file with a list of games to scan. The selected file can either be a simple text file or an output csv file from a previous run. "
          "The output csv file will contain information about the Steam AppIDs and cards of all scanned games. "
          "You can append new games to the end of the file in order to save processing time for every game scanned before. "
-         "\n\tLog:\n")
+         "\n\n\tLog:\n")
 
 button_open = "Open list"
 button_save = "Save target"

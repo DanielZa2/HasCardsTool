@@ -1,13 +1,10 @@
 import threading
 import tkinter as tk
 import tkinter.filedialog
-import tkinter.messagebox
 import Main as bk
 import ResourceStrings as st
 import logging
 from contextlib import closing
-
-#TODO resizing of the window
 
 
 class Main:
@@ -15,19 +12,10 @@ class Main:
         self.root = tk.Tk()
         self.root.title(st.program_title)
 
-        self.frame_text = tk.Frame(self.root)
-        self.frame_text.pack(side=tk.LEFT)
 
-        self.text_output = tk.Text(self.frame_text, width=65, wrap=tk.WORD)
-        self.text_output.pack(side=tk.LEFT)
-        self.text_output.insert(tk.END, st.instruction)
-
-        self.scroll_text = tk.Scrollbar(self.frame_text, orient=tk.VERTICAL, command=self.text_output.yview)
-        self.scroll_text.pack(side=tk.RIGHT, fill=tk.Y)
-        self.text_output['yscrollcommand'] = self.scroll_text.set
 
         self.frame_buttons = tk.Frame(self.root)
-        self.frame_buttons.pack(side=tk.RIGHT, fill=tk.Y)
+        self.frame_buttons.pack(side=tk.RIGHT, fill=tk.Y, padx=1)
 
         self.button_open = tk.Button(self.frame_buttons, text=st.button_open, command=self.action_open)
         self.button_save = tk.Button(self.frame_buttons, text=st.button_save, command=self.action_save, state=tk.DISABLED)
@@ -41,6 +29,18 @@ class Main:
         self.checkbox_online.pack(side=tk.TOP, fill=tk.X)
 
 
+
+        self.frame_text = tk.Frame(self.root)
+        self.frame_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
+
+        self.text_output = tk.Text(self.frame_text, wrap=tk.WORD)
+        self.text_output.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
+        self.text_output.insert(tk.END, st.instruction)
+
+        self.scroll_text = tk.Scrollbar(self.frame_text, orient=tk.VERTICAL, command=self.text_output.yview)
+        self.scroll_text.pack(side=tk.RIGHT, fill=tk.Y)
+        self.text_output['yscrollcommand'] = self.scroll_text.set
+
         self.config = None
         self.app_list = None
         self.sleepy = None
@@ -50,16 +50,6 @@ class Main:
         self.thread_obj = None
         self.thread_stop = False
         self.thread_lock_cond = threading.Condition()
-
-    def __scroll_handler__(self, *l):
-        """Source: http://infohost.nmt.edu/~shipman/soft/tkinter/web/entry.html"""
-        op, how_many = l[0], l[1]
-
-        if op == 'scroll':
-            units = l[2]
-            self.text_output.xview_scroll(how_many, units)
-        elif op == 'moveto':
-            self.text_output.xview_moveto(how_many)
 
     def start(self):
         """Start the main window"""
@@ -176,7 +166,7 @@ class Main:
 
 def main():
     """Starts the GUI"""
-    bk.init_log(filename="log.txt", console=True, level=logging.DEBUG)
+    bk.init_log(filename="log.txt", console=True, level=logging.INFO)
 
     with closing(Main()) as window:
         window.start()
