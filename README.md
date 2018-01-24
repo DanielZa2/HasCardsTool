@@ -34,18 +34,18 @@ Alternatively you can input a list with the same format as the output. This way 
 Most importantly you can also mix and match both formats, in case you acquired more keys and you don't want to scan all the list from the begining. For example:
 
 <pre>
-    Ori and the Blind Forest,261570,TRUE
-    Antichamber,219890,TRUE
-    <b>Braid</b>
-    Hand of Fate,266510,
-    <b>Rollers of the Realm</b>
-    <b>Recettear: An Item Shop's Tale</b>
-    Evoland 2,359310,FALSE
-    Mark of the Ninja,214560,
-    Bastion,107100,TRUE
-    <b>Mages of Mystralia</b>
-    <b>Freedom Fall</b>
-    <b>SteamWorld Dig</b>
+Ori and the Blind Forest,261570,TRUE
+Antichamber,219890,TRUE
+<b>Braid</b>
+Hand of Fate,266510,
+<b>Rollers of the Realm</b>
+<b>Recettear: An Item Shop's Tale</b>
+Evoland 2,359310,FALSE
+Mark of the Ninja,214560,
+Bastion,107100,TRUE
+<b>Mages of Mystralia</b>
+<b>Freedom Fall</b>
+<b>SteamWorld Dig</b>
 </pre>
 
 # Using Google
