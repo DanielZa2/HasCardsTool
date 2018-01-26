@@ -3,7 +3,7 @@ This applicatiopn take a list of games and tells you if they have Steam cards as
 This is useful if you have a large bunch of keys laying around that you want to trade away or farm for cards.
 
 # Under the hood
-This application uses the steam web api to get the list of all the application currently on Steam and tries to match these with the games on the input list. Sometimes, when the name of the game is significantly different from the name on the list, the application might fail to recognize it. For example if your list contains "assassins creed 1" instead of "Assassin's Creed™: Director's Cut Edition". In these cases the application can use Google to recognize the name. Regardless when the appid of the game is found the application uses another Steam web api to check if it has any trading cards.
+This application uses the steam web api to get the list of all the application currently on Steam and tries to match these with the games on the input list. Sometimes, when the name of the game is significantly different from the name on the list, the application might fail to recognize it. For example if your list contains "assassins creed 1" instead of "Assassin's Creed™: Director's Cut Edition". In these cases the application can preform a Google search in order to recognize the name. Regardless when the appid of the game is found the application uses another Steam web api to check if it has any trading cards.
 
 
 # Input
@@ -49,4 +49,4 @@ Bastion,107100,TRUE
 </pre>
 
 # Using Google
-This application can use the google web api in order to search for the games in your list that it could not locate on its own. In order to do that, you'll need to recive an api key using your Google account and input it into the config.txt file. Google allows up to a 100 searches through their web api, per day, for free. You can generate a key [here](https://developers.google.com/custom-search/json-api/v1/overview).
+This application can use the google web api in order to search for the games in your list that it could not identify on its own. In order to do that, you'll need to recive an api key using your own Google account and input it into the config.txt file. Google allows up to a 100 searches through their web api, per day, for free. You can generate a key [here](https://developers.google.com/custom-search/json-api/v1/overview).
